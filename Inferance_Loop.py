@@ -5,11 +5,11 @@ import torch
 tokenizer = AutoTokenizer.from_pretrained("google/gemma-7b-it")
 
 model = AutoModelForCausalLM.from_pretrained(
-    "google/gemma-7b-it",
-    device_map="auto",
-    offload_folder="offload",
-    # load_in_4bit=True,	# 4bit quantization
-    torch_dtype=torch.float16
+	"google/gemma-7b-it",
+	device_map="auto",
+	offload_folder="offload",
+	# load_in_4bit=True,	# 4bit quantization
+	torch_dtype=torch.float16
 )
 
 device = next(model.parameters()).device
@@ -21,11 +21,11 @@ def chat_next(prompt):
 	conversation.append({"role": "user", "content": prompt})
 
 	input_ids = tokenizer.apply_chat_template(
-	    conversation,
-	    add_generation_prompt=True,
-	    tokenize=True,
-	    return_dict=True,
-	    return_tensors="pt",
+		conversation,
+		add_generation_prompt=True,
+		tokenize=True,
+		return_dict=True,
+		return_tensors="pt",
 	)
 	input_ids = {k: v.to(device) for k, v in input_ids.items()}
 

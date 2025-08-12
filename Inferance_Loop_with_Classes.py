@@ -10,11 +10,11 @@ class LLM_handler():
 		self.tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 		self.model = AutoModelForCausalLM.from_pretrained(
-		    model_id,
-		    device_map="auto",
-		    offload_folder="offload",
-		    # load_in_4bit=True,	# 4bit quantization
-		    torch_dtype=torch.float16
+			model_id,
+			device_map="auto",
+			offload_folder="offload",
+			# load_in_4bit=True,	# 4bit quantization
+			torch_dtype=torch.float16
 		)
 
 		self.device = next(self.model.parameters()).device
@@ -25,11 +25,11 @@ class LLM_handler():
 		self.conversation.append({"role": "user", "content": prompt})
 
 		input_ids = self.tokenizer.apply_chat_template(
-		    self.conversation,
-		    add_generation_prompt=True,
-		    tokenize=True,
-		    return_dict=True,
-		    return_tensors="pt",
+			self.conversation,
+			add_generation_prompt=True,
+			tokenize=True,
+			return_dict=True,
+			return_tensors="pt",
 		)
 		input_ids = {k: v.to(self.device) for k, v in input_ids.items()}
 

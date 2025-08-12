@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock
 import torch
-from Inferance_Loop_with_Classes_Testable import LLM_handler
+from LLM_handler.py import LLM_handler
 
 class TestLLMHandler(unittest.TestCase):
 	def setUp(self):

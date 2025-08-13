@@ -3,9 +3,9 @@ import torch
 
 # use google/gemma-7b-it
 
-class LLM_handler():
+class LLMHandler():
 
-	def __init__(self, model_id):
+	def __init__(self, model_id="google/gemma-7b-it"):
 		self.tokenizer = AutoTokenizer.from_pretrained(model_id)
 		self.model = AutoModelForCausalLM.from_pretrained(
 			model_id,
@@ -61,7 +61,7 @@ class LLM_handler():
 
 if __name__ == "__main__":
 
-	gemma = LLM_handler("google/gemma-7b-it")
+	gemma = LLMHandler("google/gemma-7b-it")
 
 	while True:
 		user_text = input("You: ")

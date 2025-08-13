@@ -1,11 +1,11 @@
 from unittest.mock import patch
 import unittest
 from flask import json
-from ChatApp import ChatApp
+from chat_app.chat_app import ChatApp
 
 class TestChatApp(unittest.TestCase):
 	def setUp(self):
-		patcher = patch('ChatApp.LLM_handler')
+		patcher = patch('chat_app.chat_app.LLMHandler')
 		self.MockLLMHandler = patcher.start()
 		self.addCleanup(patcher.stop)
 

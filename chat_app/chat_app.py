@@ -1,11 +1,11 @@
 from flask import Flask, render_template, request, jsonify
 from user_agents import parse
-from LLM_handler import LLM_handler
+from .llm_handler import LLMHandler
 
 class ChatApp:
 	def __init__(self, model_id):
 		self.app = Flask(__name__)
-		self.llm = LLM_handler(model_id)
+		self.llm = LLMHandler(model_id)
 
 		# Register routes
 		self.app.add_url_rule('/', view_func=self.index, methods=['GET'])

@@ -1,11 +1,11 @@
 import unittest
 from unittest.mock import MagicMock
 import torch
-from LLM_handler.py import LLM_handler
+from chat_app.llm_handler import LLMHandler
 
 class TestLLMHandler(unittest.TestCase):
 	def setUp(self):
-		self.handler = LLM_handler.__new__(LLM_handler)
+		self.handler = LLMHandler.__new__(LLMHandler)
 		
 		self.handler.tokenizer = MagicMock()
 		self.handler.model = MagicMock()

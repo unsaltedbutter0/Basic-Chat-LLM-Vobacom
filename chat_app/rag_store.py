@@ -89,3 +89,17 @@ class RAGStore:
 		chunks = list(self.chunker.chunk(dl_doc=doc))
 
 		return chunks[metadata['chunk_index']].text
+
+	def new_prompt(self, prompt, n_results=1):
+		results = self.query(prompt, n_results)
+		texts = results['documents']
+
+		contex = '\n'.join(texts[0])
+
+		contexed_prompt = f"From User: {prompt}\nContext: {contex}"
+
+		return contexed_prompt
+
+
+
+

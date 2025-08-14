@@ -6,8 +6,8 @@ import os
 class TestRAGStore(unittest.TestCase):
 	def setUp(self):
 		self.documents_paths = [
-		os.path.join("tests", "testDoc1.txt"),
-		os.path.join("tests", "testDoc2.txt")
+		os.path.join("tests", "testDoc1.md"),
+		os.path.join("tests", "testDoc2.md")
 		]
 		for doc in self.documents_paths:
 			with open(doc, "w") as f:
@@ -19,9 +19,19 @@ class TestRAGStore(unittest.TestCase):
 			self.testRAGStore.add_document(doc)
 
 	def test_adding_documents(self):
-		count = len(self.testRAGStore.collection.get(include=["documents"])["documents"])
+		docs = self.testRAGStore.collection.get(include=["embeddings"])["embeddings"]
+		# print(docs)
+		count = len(docs)
 		self.assertEqual(count, len(self.documents_paths))
 
+		for file in self.documents_paths:
+			os.remove(file)
+
+	def test_quering(self):
+		for i in range(2):
+			result = self.testRAGStore.query(f"Test{i+1}", 1)
+			text = result['documents'][0][0]
+			self.assertEqual(text, f"This is a test file {i+1}")
 
 if __name__ == '__main__':
 	unittest.main()

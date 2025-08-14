@@ -23,3 +23,6 @@ env/
 # Tmp files / not used
 tmp_*
 not_used/
+
+# DataBases
+*db/

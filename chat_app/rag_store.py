@@ -90,7 +90,7 @@ class RAGStore:
 
 		return chunks[metadata['chunk_index']].text
 
-	def new_prompt(self, prompt, n_results=1):
+	def new_prompt(self, prompt, n_results=5):
 		results = self.query(prompt, n_results)
 		texts = results['documents']
 

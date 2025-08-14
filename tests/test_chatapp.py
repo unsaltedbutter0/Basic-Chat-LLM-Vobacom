@@ -6,11 +6,18 @@ from chat_app.chat_app import ChatApp
 class TestChatApp(unittest.TestCase):
 	def setUp(self):
 		patcher = patch('chat_app.chat_app.LLMHandler')
+		patcher_rag = patch('chat_app.chat_app.RAGStore')
+		
 		self.MockLLMHandler = patcher.start()
+		self.MockRAGStore = patcher_rag.start()
+		
 		self.addCleanup(patcher.stop)
+		self.addCleanup(patcher_rag.stop)
 
 		mock_llm_instance = self.MockLLMHandler.return_value
+		mock_rag_instance = self.MockRAGStore.return_value
 		mock_llm_instance.chat_next.return_value = "Mocked response"
+		mock_rag_instance.new_prompt.return_value = "Mocked prompt"
 
 		self.chat_app = ChatApp("dummy-model-id")
 		self.app = self.chat_app.app
@@ -42,6 +49,16 @@ class TestChatApp(unittest.TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(data['response'], "Mocked response")
 		self.MockLLMHandler.return_value.chat_next.assert_called_once_with("Hello")
+
+	def test_rag_route(self):
+		response = self.client.post('/rag', json={"message": "Hello"})
+		data = json.loads(response.data)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(data['response'], "Mocked response")
+		self.MockRAGStore.return_value.new_prompt.assert_called_once_with("Hello")
+		self.MockLLMHandler.return_value.chat_next.assert_called_once_with("Mocked prompt")
+
 
 if __name__ == '__main__':
 	unittest.main()

@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock
 import torch
 from chat_app.llm_handler import LLMHandler
+import io
 
 class TestLLMHandler(unittest.TestCase):
 	def setUp(self):
@@ -13,6 +14,8 @@ class TestLLMHandler(unittest.TestCase):
 		self.handler.conversation = [{"role": "user", "content": "Hello"}]
 		self.handler.tokenizer.eos_token = "<eos>"
 		self.handler.tokenizer.eos_token_id = 99
+
+		self.handler.convo_log_file = io.StringIO()
 
 		self.fake_tensor_dict = {
 			"input_ids": torch.tensor([[1, 2, 3]]),

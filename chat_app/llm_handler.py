@@ -1,10 +1,11 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from datetime import datetime
 import torch
+import os
 
 # use google/gemma-7b-it
 
 class LLMHandler():
-
 	def __init__(self, model_id="google/gemma-7b-it"):
 		self.tokenizer = AutoTokenizer.from_pretrained(model_id)
 		self.model = AutoModelForCausalLM.from_pretrained(
@@ -16,12 +17,18 @@ class LLMHandler():
 		)
 		self.device = next(self.model.parameters()).device
 		self.conversation = []
+		
+		filename = f"conversation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+		path = os.path.join("conversation_logs", filename)
+		self.convo_log_file = open(path, 'w')
 
 	def add_user_message(self, message: str):
 		self.conversation.append({"role": "user", "content": message})
+		self.convo_log_file.write(f'{{"role": "user", "content": "{message}"}}\n')
 
 	def add_assistant_message(self, message: str):
 		self.conversation.append({"role": "assistant", "content": message})
+		self.convo_log_file.write(f'{{"role": "assistant", "content": "{message}"}}\n')
 
 	def prepare_inputs(self):
 		input_ids = self.tokenizer.apply_chat_template(

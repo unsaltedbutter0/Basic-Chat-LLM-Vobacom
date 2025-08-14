@@ -96,7 +96,7 @@ class RAGStore:
 
 		contex = '\n'.join(texts[0])
 
-		contexed_prompt = f"From User: {prompt}\nContext: {contex}"
+		contexed_prompt = f"From User: {prompt}\nContext to base your anwser: {contex}"
 
 		return contexed_prompt
 

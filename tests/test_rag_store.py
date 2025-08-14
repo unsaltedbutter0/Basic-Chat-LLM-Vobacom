@@ -42,7 +42,7 @@ class TestRAGStore(unittest.TestCase):
 		prompt = "What's in Test2?"
 		contexts = ["This is a test file 2", "This is a test file 1"]
 		for i in range(2):
-			expected_result = f"From User: {prompt}\nContext: {'\n'.join(contexts[:i+1])}"
+			expected_result = f"From User: {prompt}\nContext to base your anwser: {'\n'.join(contexts[:i+1])}"
 			contexted_prompt = self.testRAGStore.new_prompt(prompt, i+1)
 			# print(contexted_prompt)
 

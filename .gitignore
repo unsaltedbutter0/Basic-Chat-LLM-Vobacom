@@ -13,6 +13,7 @@ env/
 
 # Logs
 *.log
+conversation_logs/
 
 # VSCode settings
 .vscode/

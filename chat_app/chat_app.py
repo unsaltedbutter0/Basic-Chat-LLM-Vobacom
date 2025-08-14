@@ -9,6 +9,8 @@ class ChatApp:
 		self.llm = LLMHandler(model_id)
 		self.rag = RAGStore()
 
+		self.rag.add_document("C:\\Users\\wikto\\Documents\\Vobacom\\ChatVobacom\\What is RAG (Retrieval Augmented Generation)_ _ IBM.html")
+
 		# Register routes
 		self.app.add_url_rule('/', view_func=self.index, methods=['GET'])
 		self.app.add_url_rule('/chat', view_func=self.chat, methods=['POST'])

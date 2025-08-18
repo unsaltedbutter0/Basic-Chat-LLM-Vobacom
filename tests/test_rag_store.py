@@ -5,10 +5,9 @@ import shutil
 import os
 from chat_app.rag_store import RAGStore
 
-# --- tiny deterministic embedder so we don't hit transformers ---
 class _FakeEmbedder:
 	def __init__(self):
-		self.dim = 1  # not used, but harmless
+		self.dim = 1  
 
 	def embed(self, texts):
 		# Return a 1D embedding that maps strings containing "2" closer to query "Test2"

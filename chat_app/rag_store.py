@@ -94,11 +94,11 @@ class RAGStore:
 		results = self.query(prompt, n_results)
 		texts = results['documents']
 
-		contex = '\n'.join(texts[0])
+                context = '\n'.join(texts[0])
 
-		contexed_prompt = f"From User: {prompt}\nContext to base your anwser: {contex}"
+                contexted_prompt = f"From User: {prompt}\nContext to base your answer: {context}"
 
-		return contexed_prompt
+                return contexted_prompt
 
 
 

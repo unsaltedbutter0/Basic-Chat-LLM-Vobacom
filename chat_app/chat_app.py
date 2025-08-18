@@ -9,7 +9,7 @@ class ChatApp:
 		self.llm = LLMHandler(model_id)
 		self.rag = RAGStore()
 
-		self.rag.add_document("C:\\Users\\wikto\\Documents\\Vobacom\\ChatVobacom\\What is RAG (Retrieval Augmented Generation)_ _ IBM.html")
+		# self.rag.add_file_to_store("C:\\Users\\wikto\\Documents\\Vobacom\\ChatVobacom\\What is RAG (Retrieval Augmented Generation)_ _ IBM.html")
 
 		# Register routes
 		self.app.add_url_rule('/', view_func=self.index, methods=['GET'])
@@ -17,13 +17,16 @@ class ChatApp:
 		self.app.add_url_rule('/rag', view_func=self.rag_chat, methods=['POST'])
 
 	def index(self):
-		user_agent_string = request.headers.get('User-Agent', '')
-		user_agent = parse(user_agent_string)
+		try:
+			user_agent_string = request.headers.get('User-Agent', '')
+			user_agent = parse(user_agent_string)
 
-		if user_agent.is_mobile:
-			return render_template("index_mobile.html")
-		else :
-			return render_template("index_desktop.html")
+			if user_agent.is_mobile:
+				return render_template("index_mobile.html")
+			else :
+				return render_template("index_desktop.html")
+		except Exception as e:
+			return jsonify({'error': str(e)})
 
 	def chat(self):
 		try:

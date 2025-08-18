@@ -24,6 +24,7 @@ conversation_logs/
 # Tmp files / not used
 tmp_*
 not_used/
+test_files/
 
 # DataBases
 *db/

@@ -5,21 +5,17 @@ from chat_app.scanner import Scanner
 
 class TestScanner(unittest.TestCase):
 	def setUp(self):
-		# create a tmp dir
 		self.tmp = tempfile.mkdtemp(prefix="scan_")
 
-		# make subfolders
 		Path(self.tmp, "keep").mkdir()
 		Path(self.tmp, "skipme").mkdir()
 		Path(self.tmp, ".hidden").mkdir()
 
-		# files inside subfolders
 		Path(self.tmp, "keep", "doc1.pdf").write_text("dummy")
 		Path(self.tmp, "keep", "notes.md").write_text("dummy")
 		Path(self.tmp, "skipme", "img.png").write_text("dummy")
 		Path(self.tmp, ".hidden", "secret.docx").write_text("dummy")
 
-		# extra files directly in tmp (for shallow scan)
 		Path(self.tmp, "root1.txt").write_text("dummy")
 		Path(self.tmp, "root2.pdf").write_text("dummy")
 

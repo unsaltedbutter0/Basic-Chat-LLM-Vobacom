@@ -19,6 +19,7 @@ class LLMHandler():
 		self.conversation = []
 		
 		filename = f"conversation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+		os.makedirs("conversation_logs", exist_ok=True)
 		path = os.path.join("conversation_logs", filename)
 		self.convo_log_file = open(path, 'w')
 

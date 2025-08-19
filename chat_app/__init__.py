@@ -1,4 +1,17 @@
-from chat_app.chat_app import ChatApp
-from chat_app.llm_handler import LLMHandler
-from chat_app.rag_store import RAGStore
-from chat_app.embedder import Embedder
+# chat_app/__init__.py
+__all__ = ["ChatApp", "LLMHandler", "RAGStore", "Embedder"]
+
+def __getattr__(name):
+	if name == "ChatApp":
+		from .chat_app import ChatApp
+		return ChatApp
+	if name == "LLMHandler":
+		from .llm_handler import LLMHandler
+		return LLMHandler
+	if name == "RAGStore":
+		from .rag_store import RAGStore
+		return RAGStore
+	if name == "Embedder":
+		from .embedder import Embedder
+		return Embedder
+	raise AttributeError(name)

@@ -81,7 +81,6 @@ class Scanner:
 	def _scan_walk(self, root: Path, include_hidden: bool) -> list[str]:
 		results = []
 		for dirpath, dirnames, filenames in os.walk(root, followlinks=self.follow_symlinks):
-			# prune skip dirs in-place (fast)
 			dirnames[:] = [
 				d for d in dirnames
 				if not self._should_skip_dir(Path(dirpath) / d)

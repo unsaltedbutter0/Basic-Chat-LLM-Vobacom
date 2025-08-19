@@ -32,14 +32,15 @@ class ChatApp:
 		try:
 			user_message = request.json['message']
 			llm_response = self.llm.chat_next(user_message)
-			return jsonify({'response': llm_response})
+			return jsonify({'response': llm_response}), 200
 		except Exception as e:
 			return jsonify({'error': str(e)})
 
 	def rag_chat(self):
 		try:
 			user_message = request.json['message']
-			user_message = self.rag.new_prompt(user_message)
+			# do smth about sources
+			user_message, sources = self.rag.new_prompt_and_sources(user_message)
 			llm_response = self.llm.chat_next(user_message)
 			return jsonify({'response': llm_response})
 		except Exception as e:

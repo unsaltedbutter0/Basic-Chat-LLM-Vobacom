@@ -7,6 +7,9 @@ import hashlib
 import json
 import os
 from .embedder import Embedder
+from PIL import Image
+from pathlib import Path
+from uuid import uuid4 
 
 class RAGStore:
 	def __init__(self, chroma_dir="chroma_db"):
@@ -15,6 +18,9 @@ class RAGStore:
 		self.embedder = Embedder()
 		self.converter = DocumentConverter()
 		self.chunker = HybridChunker()
+
+		self._image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
+		self._captioner = None
 
 	# ---------- public API -------------------------------------------------
 
@@ -61,6 +67,32 @@ class RAGStore:
 				candidate_ids.append(ch_id)
 				texts_to_add.append(txt.strip())
 				metas_to_add.append(meta)
+
+			ext = os.path.splitext(abs_path)[1].lower()
+			if use_vlm and ext in self._image_exts:
+				try:
+					if self._captioner is None:
+						from .vision_captioner import VisionCaptioner
+						self._captioner = VisionCaptioner()
+
+					with Image.open(abs_path) as img:
+						img = img.convert("RGB")
+						caption = self._captioner.caption(img)
+
+					if caption and isinstance(caption, str) and caption.strip():
+						meta_cap_raw = {
+							"source_file": abs_path,
+							"chunk_index": -1,
+							"page": -1,
+							"type": "image_caption",
+						}
+						meta_cap = self._sanitize_metadata(meta_cap_raw)
+						ch_id_cap = self._stable_chunk_id(abs_path, meta_cap, caption)
+						candidate_ids.append(ch_id_cap)
+						texts_to_add.append(caption.strip())
+						metas_to_add.append(meta_cap)
+				except Exception as e:
+					print(f"[WARN] Captioning failed for {abs_path}: {e}")
 
 			if not candidate_ids:
 				print(f"[INFO] No text extracted from {abs_path} (maybe empty or image without OCR)")
@@ -114,17 +146,27 @@ class RAGStore:
 		results = self.collection.query(**kwargs)
 		return results
 
-	def new_prompt(self, prompt, n_results=5):
-		results = self.query(prompt, n_results)
-		texts_nested = results.get('documents', [[]])
+	def new_prompt_and_sources(self, prompt: str, n_results: int = 5):
+		results = self.query(prompt, n_results, include=("documents","metadatas","distances"))
+		texts_nested = results.get("documents", [[]])
+		metas_nested = results.get("metadatas", [[]])
+		dists_nested = results.get("distances", [[]])
 
-		if not texts_nested or not texts_nested[0]:
-			contex = ""
-		else:
-			contex = '\n'.join(texts_nested[0])
+		contex = '\n'.join(texts_nested[0]) if (texts_nested and texts_nested[0]) else ""
+		contexted_prompt = f"From User: {prompt}\nContext to base your answer: {contex}"
 
-		contexed_prompt = f"From User: {prompt}\nContext to base your answer: {contex}"
-		return contexed_prompt
+		sources = []
+		for i in range(len(metas_nested[0]) if metas_nested else 0):
+			m = metas_nested[0][i] or {}
+			d = dists_nested[0][i] if (dists_nested and dists_nested[0] and i < len(dists_nested[0])) else None
+			sources.append({
+				"source_file": m.get("source_file"),
+				"chunk_index": m.get("chunk_index"),
+				"page": m.get("page", -1),
+				"type": m.get("type", "text"),
+				"distance": d
+			})
+		return contexted_prompt, sources
 
 	# ---------- management helpers ----------------------------------------
 

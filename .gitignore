@@ -25,6 +25,7 @@ conversation_logs/
 tmp_*
 not_used/
 test_files/
+smoke*
 
 # DataBases
 *db/

@@ -3,6 +3,7 @@ import unittest
 import tempfile
 import shutil
 import os
+from PIL import Image
 from chat_app.rag_store import RAGStore
 
 class _FakeEmbedder:
@@ -23,6 +24,9 @@ class _FakeEmbedder:
 			embs.append([val])
 		return embs
 
+class _FakeCaptioner:
+	def caption(self, image, prompt: str = "Describe this image."):
+		return "A red triangle with the number 2 in the center."
 
 class TestRAGStore(unittest.TestCase):
 	def setUp(self):
@@ -82,21 +86,21 @@ class TestRAGStore(unittest.TestCase):
 		doc = res["documents"][0][0]
 		self.assertIn("This is a test file 2", doc)
 
-	def test_new_prompt_shape_and_order(self):
+	def test_new_prompt_and_sources_shape_and_order(self):
 		self.store.add_file_to_store(self.documents_paths[0])
 		self.store.add_file_to_store(self.documents_paths[1])
 
 		prompt = "What's in Test2?"
 
 		# top-1 context: only the "2" file
-		contexted_1 = self.store.new_prompt(prompt, 1)
+		contexted_1, sources_1 = self.store.new_prompt_and_sources(prompt, 1)
 		self.assertEqual(
 			contexted_1,
 			"From User: What's in Test2?\nContext to base your answer: This is a test file 2"
 		)
 
 		# top-2 context: "2" first, then "1" (by our fake embedding distances)
-		contexted_2 = self.store.new_prompt(prompt, 2)
+		contexted_2, sources_2 = self.store.new_prompt_and_sources(prompt, 2)
 		self.assertEqual(
 			contexted_2,
 			"From User: What's in Test2?\nContext to base your answer: This is a test file 2\nThis is a test file 1"
@@ -126,6 +130,40 @@ class TestRAGStore(unittest.TestCase):
 		self.assertGreater(re_added, 0)
 		self.assertEqual(self.store.stats()["sources"], 2)
 
+	def test_vlm_caption_ingest_and_retrieve(self):
+		tmpdb = tempfile.mkdtemp(prefix="chroma_vlm_test_")
+		try:
+			fresh = RAGStore(tmpdb)
+			fresh.embedder = _FakeEmbedder()
+
+			img_path = os.path.join(self.tests_dir, "tiny.png")
+			img = Image.new("RGB", (24, 24), color=(255, 255, 255))
+			img.save(img_path, format="PNG")
+
+			if hasattr(fresh, "_image_exts"):
+				fresh._image_exts.add(".png")
+			setattr(fresh, "_captioner", _FakeCaptioner())
+
+			# ingest as image-only (no OCR), with captions enabled
+			added_ids = fresh.ingest([img_path], use_vlm=True, ocr=False)
+			self.assertEqual(len(added_ids), 1, "Caption chunk should be added for image.")
+
+			# sanity: stats reflect exactly one source & one chunk
+			stats = fresh.stats()
+			self.assertEqual(stats["sources"], 1)
+			self.assertEqual(stats["chunks"], 1)
+
+			aug, sources = fresh.new_prompt_and_sources("triangle", n_results=1)
+			self.assertGreaterEqual(len(sources), 1)
+			top = sources[0]
+			self.assertEqual(top.get("type"), "image_caption")
+			self.assertEqual(os.path.abspath(img_path), top.get("source_file"))
+		finally:
+			try:
+				os.remove(img_path)
+			except Exception:
+				pass
+			shutil.rmtree(tmpdb, ignore_errors=True)
 
 if __name__ == '__main__':
 	unittest.main()

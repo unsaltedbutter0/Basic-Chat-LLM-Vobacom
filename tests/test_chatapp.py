@@ -17,7 +17,7 @@ class TestChatApp(unittest.TestCase):
 		mock_llm_instance = self.MockLLMHandler.return_value
 		mock_rag_instance = self.MockRAGStore.return_value
 		mock_llm_instance.chat_next.return_value = "Mocked response"
-		mock_rag_instance.new_prompt.return_value = "Mocked prompt"
+		mock_rag_instance.new_prompt_and_sources.return_value = ("Mocked prompt", "Mocked sources")
 
 		self.chat_app = ChatApp("dummy-model-id")
 		self.app = self.chat_app.app
@@ -56,7 +56,7 @@ class TestChatApp(unittest.TestCase):
 
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(data['response'], "Mocked response")
-		self.MockRAGStore.return_value.new_prompt.assert_called_once_with("Hello")
+		self.MockRAGStore.return_value.new_prompt_and_sources.assert_called_once_with("Hello")
 		self.MockLLMHandler.return_value.chat_next.assert_called_once_with("Mocked prompt")
 
 

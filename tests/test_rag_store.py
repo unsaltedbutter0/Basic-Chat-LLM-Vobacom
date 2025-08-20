@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from PIL import Image
 from types import SimpleNamespace
-from chat_app.rag_store import RAGStore
+from chat_app.rag_store import RAGStore, RAGRetriever
 
 class _FakeEmbedder:
 	def __init__(self):
@@ -50,6 +50,7 @@ class TestRAGStore(unittest.TestCase):
 
 		# fresh store; our RAGStore already clears its collection at init
 		self.store = RAGStore(self._tmpdir)
+		self.rag = RAGRetriever(self.store)
 
 		# swap in a fake embedder to avoid heavy model downloads and make ranking deterministic
 		self.store.embedder = _FakeEmbedder()
@@ -99,7 +100,7 @@ class TestRAGStore(unittest.TestCase):
 		self.store.add_file_to_store(self.documents_paths[1])
 
 		# Deterministic because of _FakeEmbedder
-		res = self.store.query("What's in Test2?", n_results=1)
+		res = self.rag.query("What's in Test2?", n_results=1)
 		doc = res["documents"][0][0]
 		self.assertIn("This is a test file 2", doc)
 
@@ -110,14 +111,14 @@ class TestRAGStore(unittest.TestCase):
 		prompt = "What's in Test2?"
 
 		# top-1 context: only the "2" file
-		contexted_1, sources_1 = self.store.new_prompt_and_sources(prompt, 1)
+		contexted_1, sources_1 = self.rag.new_prompt_and_sources(prompt, 1)
 		self.assertEqual(
 			contexted_1,
 			"From User: What's in Test2?\nContext to base your answer: This is a test file 2"
 		)
 
 		# top-2 context: "2" first, then "1" (by our fake embedding distances)
-		contexted_2, sources_2 = self.store.new_prompt_and_sources(prompt, 2)
+		contexted_2, sources_2 = self.rag.new_prompt_and_sources(prompt, 2)
 		self.assertEqual(
 			contexted_2,
 			"From User: What's in Test2?\nContext to base your answer: This is a test file 2\nThis is a test file 1"
@@ -150,27 +151,28 @@ class TestRAGStore(unittest.TestCase):
 	def test_vlm_caption_ingest_and_retrieve(self):
 		tmpdb = tempfile.mkdtemp(prefix="chroma_vlm_test_")
 		try:
-			fresh = RAGStore(tmpdb)
-			fresh._convert_with_docling = lambda p, ocr=True: SimpleNamespace(
+			fresh_store = RAGStore(tmpdb)
+			fresh = RAGRetriever(fresh_store)
+			fresh_store._convert_with_docling = lambda p, ocr=True: SimpleNamespace(
 				document=SimpleNamespace(pictures=[], abs_path=p)
 			)
-			fresh._chunk_doc = lambda dl_doc: []
-			fresh.embedder = _FakeEmbedder()
+			fresh_store._chunk_doc = lambda dl_doc: []
+			fresh_store.embedder = _FakeEmbedder()
 
 			img_path = os.path.join(self.tests_dir, "tiny.png")
 			img = Image.new("RGB", (24, 24), color=(255, 255, 255))
 			img.save(img_path, format="PNG")
 
-			if hasattr(fresh, "_image_exts"):
-				fresh._image_exts.add(".png")
-			setattr(fresh, "_captioner", _FakeCaptioner())
+			if hasattr(fresh_store, "_image_exts"):
+				fresh_store._image_exts.add(".png")
+			setattr(fresh_store, "_captioner", _FakeCaptioner())
 
 			# ingest as image-only (no OCR), with captions enabled
-			added_ids = fresh.ingest([img_path], use_vlm=True, ocr=False)
+			added_ids = fresh_store.ingest([img_path], use_vlm=True, ocr=False)
 			self.assertEqual(len(added_ids), 1, "Caption chunk should be added for image.")
 
 			# sanity: stats reflect exactly one source & one chunk
-			stats = fresh.stats()
+			stats = fresh_store.stats()
 			self.assertEqual(stats["sources"], 1)
 			self.assertEqual(stats["chunks"], 1)
 
@@ -204,9 +206,9 @@ class TestRAGStore(unittest.TestCase):
 		self.store._chunk_doc = lambda dl_doc: [SimpleNamespace(text="Some body text", page=2, type="para")]
 
 		added = self.store.ingest([str(pdf_path)])
-		self.assertGreaterEqual(len(added), 2)  # body + at least one picture chunk
+		self.assertGreaterEqual(len(added), 2)	# body + at least one picture chunk
 
-		ctx, sources = self.store.new_prompt_and_sources("bar chart", n_results=2)
+		ctx, sources = self.rag.new_prompt_and_sources("bar chart", n_results=2)
 		kinds = {s.get("type") for s in sources}
 		self.assertIn("picture_annotation", kinds)
 

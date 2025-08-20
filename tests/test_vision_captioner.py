@@ -20,7 +20,7 @@ class TestVisionCaptioner(unittest.TestCase):
 		# Mock processor
 		mock_processor = MagicMock()
 		mock_processor.batch_decode.return_value = ["A cat sitting on a chair."]
-		# When the processor is called, it should return a tensor dict
+		# When the processor is called, it should return a tensor dict with attribute 'to'
 		mock_processor.return_value = _ProcCallResult({"input_ids": torch.tensor([[1, 2, 3]])})
 		mock_processor_cls.from_pretrained.return_value = mock_processor
 

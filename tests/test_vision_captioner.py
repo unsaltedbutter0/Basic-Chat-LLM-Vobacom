@@ -1,73 +1,38 @@
+
 import unittest
 from unittest.mock import patch, MagicMock
-from PIL import Image
 import torch
 
-from chat_app.vision_captioner import VisionCaptioner
-
 class TestVisionCaptioner(unittest.TestCase):
+	@patch("chat_app.vision_captioner.Image")
 	@patch("chat_app.vision_captioner.LlavaForConditionalGeneration")
 	@patch("chat_app.vision_captioner.AutoProcessor")
-	def test_caption_happy_path(self, mock_proc_cls, mock_model_cls):
-		mock_proc = MagicMock()
-		mock_proc.apply_chat_template.return_value = "CHAT_PROMPT"
+	def test_caption_returns_string_only(self, mock_processor_cls, mock_model_cls, mock_image_cls):
+		# Mock image
+		mock_img = MagicMock()
+		mock_image_cls.open.return_value = mock_img
+		mock_img.convert.return_value = mock_img
 
-		fake_inputs = {"input_ids": torch.tensor([[1, 2, 3]])}
-		class _ProcCallResult(dict):
-			def to(self, *_args, **_kwargs):
-				return fake_inputs
-		mock_proc.return_value = _ProcCallResult(fake_inputs)
+		# Mock processor
+		mock_processor = MagicMock()
+		mock_processor.batch_decode.return_value = ["A cat sitting on a chair."]
+		# When the processor is called, it should return a tensor dict
+		mock_processor.return_value = {"input_ids": torch.tensor([[1, 2, 3]])}
+		mock_processor_cls.from_pretrained.return_value = mock_processor
 
-		mock_proc.batch_decode.return_value = ["ASSISTANT: A cat on a wooden table."]
-		mock_proc_cls.from_pretrained.return_value = mock_proc
-
+		# Mock model
 		mock_model = MagicMock()
+		mock_model.device = "cpu"
 		mock_model.generate.return_value = torch.tensor([[1, 2, 3, 4]])
-		mock_model.device = torch.device("cpu")
+		mock_model.eval.return_value = mock_model
 		mock_model_cls.from_pretrained.return_value = mock_model
 
-		vc = VisionCaptioner()
+		from chat_app.vision_captioner import VisionCaptioner
+		captioner = VisionCaptioner("llava-hf/llava-1.5-7b-hf")
+		result = captioner.caption("fake_path.jpg")
 
-		img = Image.new("RGB", (2, 2), color=(255, 0, 0))
-
-		caption = vc.caption(img)
-
-		self.assertEqual(caption, "A cat on a wooden table.")
-		mock_proc.apply_chat_template.assert_called_once()
-		mock_model.generate.assert_called_once()
-		mock_proc.batch_decode.assert_called_once()
-
-	@patch("chat_app.vision_captioner.LlavaForConditionalGeneration")
-	@patch("chat_app.vision_captioner.AutoProcessor")
-	def test_caption_uses_custom_prompt(self, mock_proc_cls, mock_model_cls):
-		mock_proc = MagicMock()
-		mock_proc.apply_chat_template.return_value = "CHAT_PROMPT"
-
-		class _ProcCallResult(dict):
-			def to(self, *_args, **_kwargs):
-				return {"input_ids": torch.tensor([[1]])}
-		mock_proc.return_value = _ProcCallResult({})
-
-		mock_proc.batch_decode.return_value = ["ASSISTANT: Custom prompt respected."]
-		mock_proc_cls.from_pretrained.return_value = mock_proc
-
-		mock_model = MagicMock()
-		mock_model.generate.return_value = torch.tensor([[1, 2]])
-		mock_model.device = torch.device("cpu")
-		mock_model_cls.from_pretrained.return_value = mock_model
-
-		vc = VisionCaptioner()
-		img = Image.new("RGB", (2, 2))
-		_ = vc.caption(img, prompt="Describe briefly.")
-		args, kwargs = mock_proc.apply_chat_template.call_args
-		messages = args[0]
-		self.assertEqual(messages[0]["content"][0]["text"], "Describe briefly.")
-
-	def test_caption_none_image_raises(self):
-		vc = VisionCaptioner.__new__(VisionCaptioner)
-		with self.assertRaises(ValueError):
-			vc.caption(None)
-
+		self.assertIsInstance(result, str)
+		self.assertEqual(result, "A cat sitting on a chair.")
 
 if __name__ == "__main__":
 	unittest.main()

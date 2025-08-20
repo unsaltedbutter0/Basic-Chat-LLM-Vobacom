@@ -8,8 +8,6 @@ import json
 import os
 from .embedder import Embedder
 from PIL import Image
-from pathlib import Path
-from uuid import uuid4 
 
 class RAGStore:
 	def __init__(self, chroma_dir="chroma_db"):
@@ -32,92 +30,14 @@ class RAGStore:
 		Returns the list of newly-added chunk IDs.
 		"""
 		added_ids: list[str] = []
-
 		for file_path in paths:
-			if not os.path.exists(file_path):
-				raise FileNotFoundError(f"File not found: {file_path}")
-
-			abs_path = os.path.abspath(file_path)
-
+			abs_path = self._validate_and_abspath(file_path)
 			try:
-				result = self.converter.convert(abs_path)
-				doc = result.document
+				ids = self._ingest_one(abs_path, use_vlm=use_vlm, ocr=ocr)
+				added_ids.extend(ids)
 			except Exception as e:
-				print(f"[WARN] Could not parse {abs_path}: {e}")
+				print(f"[WARN] Failed to ingest {abs_path}: {e}")
 				continue
-
-			chunks = list(self.chunker.chunk(dl_doc=doc))
-
-			# Build stable IDs + sanitized metadata for chunks that have non-empty text
-			candidate_ids, texts_to_add, metas_to_add = [], [], []
-			for idx, ch in enumerate(chunks):
-				txt = getattr(ch, "text", "")
-				if not isinstance(txt, str) or not txt.strip():
-					continue
-
-				meta_raw = {
-					"source_file": abs_path,
-					"chunk_index": int(idx),
-					"page": int(getattr(ch, "page", -1)) if getattr(ch, "page", None) is not None else -1,
-					"type": self._safe_str(getattr(ch, "type", None)),
-				}
-				meta = self._sanitize_metadata(meta_raw)
-				ch_id = self._stable_chunk_id(abs_path, meta, txt)
-
-				candidate_ids.append(ch_id)
-				texts_to_add.append(txt.strip())
-				metas_to_add.append(meta)
-
-			ext = os.path.splitext(abs_path)[1].lower()
-			if use_vlm and ext in self._image_exts:
-				try:
-					if self._captioner is None:
-						from .vision_captioner import VisionCaptioner
-						self._captioner = VisionCaptioner()
-
-					with Image.open(abs_path) as img:
-						img = img.convert("RGB")
-						caption = self._captioner.caption(img)
-
-					if caption and isinstance(caption, str) and caption.strip():
-						meta_cap_raw = {
-							"source_file": abs_path,
-							"chunk_index": -1,
-							"page": -1,
-							"type": "image_caption",
-						}
-						meta_cap = self._sanitize_metadata(meta_cap_raw)
-						ch_id_cap = self._stable_chunk_id(abs_path, meta_cap, caption)
-						candidate_ids.append(ch_id_cap)
-						texts_to_add.append(caption.strip())
-						metas_to_add.append(meta_cap)
-				except Exception as e:
-					print(f"[WARN] Captioning failed for {abs_path}: {e}")
-
-			if not candidate_ids:
-				print(f"[INFO] No text extracted from {abs_path} (maybe empty or image without OCR)")
-				continue
-
-			# Filter out any chunks already present
-			to_add_mask = self._missing_id_mask(candidate_ids)
-			if not any(to_add_mask):
-				continue
-
-			ids_to_add = [i for i, keep in zip(candidate_ids, to_add_mask) if keep]
-			texts_final = [t for t, keep in zip(texts_to_add, to_add_mask) if keep]
-			metas_final = [m for m, keep in zip(metas_to_add, to_add_mask) if keep]
-
-			embeddings = self.embedder.embed(texts_final)
-
-			self.collection.add(
-				documents=texts_final,
-				embeddings=embeddings,
-				metadatas=metas_final,
-				ids=ids_to_add
-			)
-
-			added_ids.extend(ids_to_add)
-
 		return added_ids
 
 	def add_file_to_store(self, file_path):
@@ -183,7 +103,6 @@ class RAGStore:
 			self.collection.delete(ids=ids)
 		return len(ids)
 
-
 	def reingest(self, file_path: str, *, use_vlm: bool=False, ocr: bool=True) -> int:
 		"""
 		Delete all chunks for a source and ingest it again.
@@ -217,7 +136,126 @@ class RAGStore:
 			"sources": len(self.list_sources())
 		}
 
-	# ---------- internals --------------------------------------------------
+	# ---------- internals (ingest helpers) ---------------------------------
+
+	def _ingest_one(self, abs_path: str, *, use_vlm: bool, ocr: bool) -> list[str]:
+		"""Ingest a single absolute path and return added chunk IDs."""
+		# 1) Convert document with Docling
+		result = self._convert_with_docling(abs_path, ocr=ocr)
+		doc = result.document
+
+		# 2) Chunk
+		chunks = self._chunk_doc(doc)
+
+		# 3) Build candidates from text chunks
+		cand_ids, texts, metas = self._build_text_chunks(abs_path, chunks)
+
+		# 4) Optionally caption images (VLM)
+		if use_vlm:
+			cap_id, cap_text, cap_meta = self._maybe_caption_image(abs_path)
+			if cap_id is not None:
+				cand_ids.append(cap_id)
+				texts.append(cap_text)
+				metas.append(cap_meta)
+
+		# 5) Filter out existing IDs
+		mask = self._missing_id_mask(cand_ids)
+		if not any(mask):
+			return []
+		ids_to_add = [i for i, keep in zip(cand_ids, mask) if keep]
+		texts_final = [t for t, keep in zip(texts, mask) if keep]
+		metas_final = [m for m, keep in zip(metas, mask) if keep]
+
+		# 6) Embed + add to Chroma
+		embeddings = self._embed_texts(texts_final)
+		self._add_to_collection(ids_to_add, texts_final, metas_final, embeddings)
+		return ids_to_add
+
+	def _validate_and_abspath(self, file_path: str) -> str:
+		"""Ensure path exists and return absolute path."""
+		if not os.path.exists(file_path):
+			raise FileNotFoundError(f"File not found: {file_path}")
+		return os.path.abspath(file_path)
+
+	def _convert_with_docling(self, abs_path: str, *, ocr: bool):
+		"""
+		Run Docling conversion.
+		If your Docling version exposes configuration for OCR (e.g., pipeline options),
+		you can wire it here with the `ocr` flag.
+		"""
+		return self.converter.convert(abs_path)
+
+	def _chunk_doc(self, dl_doc: DoclingDocument):
+		"""Chunk a DoclingDocument using HybridChunker (titles + semantic)."""
+		return list(self.chunker.chunk(dl_doc=dl_doc))
+
+	def _build_text_chunks(self, abs_path: str, chunks):
+		"""
+		From Docling chunks, produce candidate IDs, texts, and metadata.
+		Ignores empty / whitespace-only text chunks.
+		"""
+		candidate_ids, texts_to_add, metas_to_add = [], [], []
+		for idx, ch in enumerate(chunks):
+			txt = getattr(ch, "text", "")
+			if not isinstance(txt, str) or not txt.strip():
+				continue
+			meta_raw = {
+				"source_file": abs_path,
+				"chunk_index": int(idx),
+				"page": int(getattr(ch, "page", -1)) if getattr(ch, "page", None) is not None else -1,
+				"type": self._safe_str(getattr(ch, "type", None)),
+			}
+			meta = self._sanitize_metadata(meta_raw)
+			ch_id = self._stable_chunk_id(abs_path, meta, txt)
+			candidate_ids.append(ch_id)
+			texts_to_add.append(txt.strip())
+			metas_to_add.append(meta)
+		return candidate_ids, texts_to_add, metas_to_add
+
+	def _maybe_caption_image(self, abs_path: str):
+		"""
+		If `abs_path` is an image and VLM is enabled, run captioning and return a
+		single (id, text, meta) tuple; otherwise (None, None, None).
+		"""
+		ext = os.path.splitext(abs_path)[1].lower()
+		if ext not in self._image_exts:
+			return None, None, None
+		try:
+			if self._captioner is None:
+				from .vision_captioner import VisionCaptioner
+				self._captioner = VisionCaptioner()
+			from PIL import Image
+			with Image.open(abs_path) as img:
+				img = img.convert("RGB")
+				caption = self._captioner.caption(img)
+			if caption and isinstance(caption, str) and caption.strip():
+				meta_cap_raw = {
+					"source_file": abs_path,
+					"chunk_index": -1,
+					"page": -1,
+					"type": "image_caption",
+				}
+				meta_cap = self._sanitize_metadata(meta_cap_raw)
+				ch_id_cap = self._stable_chunk_id(abs_path, meta_cap, caption)
+				return ch_id_cap, caption.strip(), meta_cap
+		except Exception as e:
+			print(f"[WARN] Captioning failed for {abs_path}: {e}")
+		return None, None, None
+
+	def _embed_texts(self, texts: list[str]):
+		"""Return embeddings for the given list of texts using self.embedder."""
+		return self.embedder.embed(texts)
+
+	def _add_to_collection(self, ids, texts, metas, embeddings):
+		"""Add records to Chroma collection (documents + embeddings + metadata)."""
+		self.collection.add(
+			documents=texts,
+			embeddings=embeddings,
+			metadatas=metas,
+			ids=ids,
+		)
+
+	# ---------- internals (generic) ---------------------------------------
 
 	def _stable_chunk_id(self, source_path: str, meta: dict, text: str) -> str:
 		payload = {

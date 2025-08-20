@@ -3,7 +3,9 @@ import unittest
 import tempfile
 import shutil
 import os
+from pathlib import Path
 from PIL import Image
+from types import SimpleNamespace
 from chat_app.rag_store import RAGStore
 
 class _FakeEmbedder:
@@ -33,7 +35,6 @@ class TestRAGStore(unittest.TestCase):
 		# temp chroma dir per test, so no cross-test leakage
 		self._tmpdir = tempfile.mkdtemp(prefix="chroma_test_")
 
-		# make sure tests/ exists (Windows-safe)
 		self.tests_dir = os.path.abspath("tests")
 		os.makedirs(self.tests_dir, exist_ok=True)
 
@@ -52,6 +53,22 @@ class TestRAGStore(unittest.TestCase):
 
 		# swap in a fake embedder to avoid heavy model downloads and make ranking deterministic
 		self.store.embedder = _FakeEmbedder()
+
+		def _fake_convert(abs_path, ocr=True):
+		# carry abs_path so chunker can read file
+			return SimpleNamespace(document=SimpleNamespace(pictures=[], abs_path=abs_path))
+
+		def _fake_chunk(dl_doc):
+			# one chunk = the whole file text (or empty for non-text)
+			try:
+				with open(dl_doc.abs_path, "r", encoding="utf-8") as f:
+					txt = f.read()
+			except Exception:
+				txt = ""
+			return [SimpleNamespace(text=txt, page=1, type="text")] if txt else []
+
+		self.store._convert_with_docling = _fake_convert
+		self.store._chunk_doc = _fake_chunk
 
 	def tearDown(self):
 		# clean test docs
@@ -134,6 +151,10 @@ class TestRAGStore(unittest.TestCase):
 		tmpdb = tempfile.mkdtemp(prefix="chroma_vlm_test_")
 		try:
 			fresh = RAGStore(tmpdb)
+			fresh._convert_with_docling = lambda p, ocr=True: SimpleNamespace(
+				document=SimpleNamespace(pictures=[], abs_path=p)
+			)
+			fresh._chunk_doc = lambda dl_doc: []
 			fresh.embedder = _FakeEmbedder()
 
 			img_path = os.path.join(self.tests_dir, "tiny.png")
@@ -164,6 +185,30 @@ class TestRAGStore(unittest.TestCase):
 			except Exception:
 				pass
 			shutil.rmtree(tmpdb, ignore_errors=True)
+
+	def test_pdf_picture_annotations_are_indexed(self):
+		pdf_path = (Path(__file__).parent / "test_files" / "test_file.pdf").resolve()
+		self.assertTrue(pdf_path.exists(), f"Missing fixture: {pdf_path}")
+
+		# fake a doc with one picture: human caption + VLM annotation
+		pic = SimpleNamespace(
+			self_ref="pic:1",
+			page=2,
+			image=SimpleNamespace(uri="mem://img1"),
+			caption_text=lambda doc: "Figure 1: A small chart",
+			annotations=[SimpleNamespace(text="A bar chart with three bars", provenance="fake-vlm")]
+		)
+		fake_doc = SimpleNamespace(pictures=[pic], abs_path="dummy.pdf")
+
+		self.store._convert_with_docling = lambda p, ocr=True: SimpleNamespace(document=fake_doc)
+		self.store._chunk_doc = lambda dl_doc: [SimpleNamespace(text="Some body text", page=2, type="para")]
+
+		added = self.store.ingest([str(pdf_path)])
+		self.assertGreaterEqual(len(added), 2)  # body + at least one picture chunk
+
+		ctx, sources = self.store.new_prompt_and_sources("bar chart", n_results=2)
+		kinds = {s.get("type") for s in sources}
+		self.assertIn("picture_annotation", kinds)
 
 if __name__ == '__main__':
 	unittest.main()

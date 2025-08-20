@@ -1,7 +1,11 @@
-
+import os
 import unittest
 from unittest.mock import patch, MagicMock
 import torch
+
+class _ProcCallResult(dict):
+	def to(self, *_args, **_kwargs):
+		return self
 
 class TestVisionCaptioner(unittest.TestCase):
 	@patch("chat_app.vision_captioner.Image")
@@ -17,7 +21,7 @@ class TestVisionCaptioner(unittest.TestCase):
 		mock_processor = MagicMock()
 		mock_processor.batch_decode.return_value = ["A cat sitting on a chair."]
 		# When the processor is called, it should return a tensor dict
-		mock_processor.return_value = {"input_ids": torch.tensor([[1, 2, 3]])}
+		mock_processor.return_value = _ProcCallResult({"input_ids": torch.tensor([[1, 2, 3]])})
 		mock_processor_cls.from_pretrained.return_value = mock_processor
 
 		# Mock model

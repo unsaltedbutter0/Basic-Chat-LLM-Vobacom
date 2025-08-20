@@ -1,4 +1,5 @@
 import torch
+import os
 from PIL import Image
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 
@@ -22,11 +23,15 @@ class VisionCaptioner:
 
 		self._device = getattr(self.model, "device", torch.device("cpu"))
 
-	def caption(self, image: Image.Image, prompt: str = None) -> str:
-		if image is None:
-			raise ValueError("image must be a PIL.Image")
+	def caption(self, image, prompt: str = None) -> str:
+		if isinstance(image, (str, os.PathLike)):
+			img = Image.open(image)
+		elif isinstance(image, Image.Image):
+			img = image
+		else:
+			raise ValueError("image must be a PIL.Image or a path")
 
-		img_rgb = image.convert("RGB")
+		img_rgb = img.convert("RGB")
 
 		instruction = (
 			prompt

@@ -1,11 +1,12 @@
 # rag_store.py
-from docling_core.types.doc import DoclingDocument
+from docling.datamodel.base_models import InputFormat
+from docling.document_converter import PdfFormatOption
+from docling.datamodel.pipeline_options import PdfPipelineOptions, PictureDescriptionVlmOptions
+from docling_core.types.doc.document import PictureDescriptionData, DoclingDocument
 from docling.document_converter import DocumentConverter
 from docling.chunking import HybridChunker
 from chromadb import PersistentClient
-import hashlib
-import json
-import os
+import hashlib, json, os
 from .embedder import Embedder
 from PIL import Image
 
@@ -150,6 +151,12 @@ class RAGStore:
 		# 3) Build candidates from text chunks
 		cand_ids, texts, metas = self._build_text_chunks(abs_path, chunks)
 
+		# 4) 
+		pic_ids, pic_texts, pic_metas = self._extract_picture_chunks(doc, abs_path)
+		cand_ids.extend(pic_ids)
+		texts.extend(pic_texts)
+		metas.extend(pic_metas)
+
 		# 4) Optionally caption images (VLM)
 		if use_vlm:
 			cap_id, cap_text, cap_meta = self._maybe_caption_image(abs_path)
@@ -179,10 +186,16 @@ class RAGStore:
 
 	def _convert_with_docling(self, abs_path: str, *, ocr: bool):
 		"""
-		Run Docling conversion.
-		If your Docling version exposes configuration for OCR (e.g., pipeline options),
-		you can wire it here with the `ocr` flag.
+		Run Docling conversion with pdf's image annotation.
 		"""
+		popts = PdfPipelineOptions()
+		popts.do_picture_description = True
+		popts.picture_description_options = PictureDescriptionVlmOptions(
+			repo_id="llava-hf/llava-1.5-7b-hf",
+		)
+		self.converter = DocumentConverter(format_options={
+			InputFormat.PDF: PdfFormatOption(pipeline_options=popts)
+		})
 		return self.converter.convert(abs_path)
 
 	def _chunk_doc(self, dl_doc: DoclingDocument):
@@ -211,6 +224,41 @@ class RAGStore:
 			texts_to_add.append(txt.strip())
 			metas_to_add.append(meta)
 		return candidate_ids, texts_to_add, metas_to_add
+
+	def _extract_picture_chunks(self, doc, abs_path: str):
+		ids, texts, metas = [], [], []
+		for pic in getattr(doc, "pictures", []):
+			# Users caption
+			cap = (pic.caption_text(doc=doc) or "").strip()
+			if cap:
+				meta = self._sanitize_metadata({
+					"source_file": abs_path,
+					"type": "picture_caption",
+					"page": getattr(pic, "page", -1) or -1,
+					"picture_ref": getattr(pic, "self_ref", ""),
+					"image_uri": str(getattr(getattr(pic, "image", None), "uri", "")),
+				})
+				ids.append(self._stable_chunk_id(abs_path, meta, cap))
+				texts.append(cap)
+				metas.append(meta)
+
+			# VLM's annotation
+			for ann in getattr(pic, "annotations", []):
+				desc = (getattr(ann, "text", "") or "").strip()
+				if not desc:
+					continue
+				meta = self._sanitize_metadata({
+					"source_file": abs_path,
+					"type": "picture_annotation",
+					"page": getattr(pic, "page", -1) or -1,
+					"picture_ref": getattr(pic, "self_ref", ""),
+					"provenance": getattr(ann, "provenance", ""),
+					"image_uri": str(getattr(getattr(pic, "image", None), "uri", "")),
+				})
+				ids.append(self._stable_chunk_id(abs_path, meta, desc))
+				texts.append(desc)
+				metas.append(meta)
+		return ids, texts, metas
 
 	def _maybe_caption_image(self, abs_path: str):
 		"""
@@ -258,6 +306,9 @@ class RAGStore:
 	# ---------- internals (generic) ---------------------------------------
 
 	def _stable_chunk_id(self, source_path: str, meta: dict, text: str) -> str:
+		"""
+		Generates uniqe id for the chunk.
+		"""
 		payload = {
 			"src": os.path.abspath(source_path),
 			"meta": meta,

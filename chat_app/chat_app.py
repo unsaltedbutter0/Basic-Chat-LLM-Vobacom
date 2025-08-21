@@ -2,14 +2,16 @@ from flask import Flask, render_template, request, jsonify
 from user_agents import parse
 from .llm_handler import LLMHandler
 from .rag_store import RAGStore
+from .rag_retriever import RAGRetriever
 
 class ChatApp:
 	def __init__(self, model_id):
 		self.app = Flask(__name__)
 		self.llm = LLMHandler(model_id)
-		self.rag = RAGStore()
+		self.store = RAGStore()
+		self.rag = RAGRetriever(self.store)
 
-		# self.rag.add_file_to_store("C:\\Users\\wikto\\Documents\\Vobacom\\ChatVobacom\\What is RAG (Retrieval Augmented Generation)_ _ IBM.html")
+		# self.store.add_file_to_store("C:\\Users\\wikto\\Documents\\Vobacom\\ChatVobacom\\What is RAG (Retrieval Augmented Generation)_ _ IBM.html")
 
 		# Register routes
 		self.app.add_url_rule('/', view_func=self.index, methods=['GET'])

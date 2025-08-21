@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 from PIL import Image
 from types import SimpleNamespace
-from chat_app.rag_store import RAGStore, RAGRetriever
+from chat_app.rag_store import RAGStore
+from chat_app.rag_retriever import RAGRetriever
 
 class _FakeEmbedder:
 	def __init__(self):

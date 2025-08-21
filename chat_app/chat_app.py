@@ -1,7 +1,8 @@
 from flask import Flask, render_template, request, jsonify
 from user_agents import parse
 from .llm_handler import LLMHandler
-from .rag_store import RAGStore, RAGRetriever
+from .rag_store import RAGStore
+from .rag_retriever import RAGRetriever
 
 class ChatApp:
 	def __init__(self, model_id):

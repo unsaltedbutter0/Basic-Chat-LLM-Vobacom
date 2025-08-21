@@ -25,6 +25,8 @@ conversation_logs/
 tmp_*
 not_used/
 test_files/
+!tests/test_files/
+!tests/test_files/test_file.pdf
 smoke*
 
 # DataBases

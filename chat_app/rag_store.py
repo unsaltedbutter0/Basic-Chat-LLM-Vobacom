@@ -1,4 +1,5 @@
 # rag_store.py
+import logging
 from docling.datamodel.base_models import InputFormat
 from docling.document_converter import PdfFormatOption
 from docling.datamodel.pipeline_options import PdfPipelineOptions, PictureDescriptionVlmOptions
@@ -10,6 +11,7 @@ import hashlib, json, os
 from .embedder import Embedder
 from PIL import Image
 
+logger = logging.getLogger(__name__)
 
 class RAGStore:
         def __init__(self, chroma_dir="chroma_db", embedder: Embedder | None = None):
@@ -18,11 +20,23 @@ class RAGStore:
                         name="documents", embedding_function=None
                 )
                 self.embedder = embedder or self._init_embedder()
-                self.converter = DocumentConverter()
-                self.chunker = HybridChunker()
+                try:
+                        self.converter = DocumentConverter()
+                except Exception as e:
+                        logger.warning("DocumentConverter unavailable: %s", e)
+                        self.converter = None
+                try:
+                        self.chunker = HybridChunker()
+                except Exception as e:
+                        logger.warning("HybridChunker unavailable: %s", e)
+                        class _DummyChunker:
+                                def chunk(self, dl_doc):
+                                        return []
+                        self.chunker = _DummyChunker()
 
                 self._image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
                 self._captioner = None
+                logger.info("RAGStore initialized at %s", os.path.abspath(chroma_dir))
 
         # ---------- public API -------------------------------------------------
 
@@ -36,11 +50,13 @@ class RAGStore:
                 added_ids: list[str] = []
                 for file_path in paths:
                         abs_path = self._validate_and_abspath(file_path)
+                        logger.info("Ingesting %s", abs_path)
                         try:
                                 ids = self._ingest_one(abs_path, use_vlm=use_vlm, ocr=ocr)
+                                logger.info("Added %d chunks from %s", len(ids), abs_path)
                                 added_ids.extend(ids)
                         except Exception as e:
-                                print(f"[WARN] Failed to ingest {abs_path}: {e}")
+                                logger.warning("Failed to ingest %s: %s", abs_path, e)
                                 continue
                 return added_ids
 
@@ -59,11 +75,14 @@ class RAGStore:
                 Returns the number of deleted chunks.
                 """
                 abs_path = os.path.abspath(file_path)
+                logger.info("Deleting source %s", abs_path)
+
                 # NOTE: Do NOT pass include=["ids"]; 'ids' is always returned by get()
                 records = self.collection.get(where={"source_file": abs_path})
                 ids = records.get("ids", []) or []
                 if ids:
                         self.collection.delete(ids=ids)
+                        logger.info("Deleted %d chunks from %s", len(ids), abs_path)
                 return len(ids)
 
         def reingest(self, file_path: str, *, use_vlm: bool=False, ocr: bool=True) -> int:
@@ -71,6 +90,8 @@ class RAGStore:
                 Delete all chunks for a source and ingest it again.
                 Returns the number of newly added chunks.
                 """
+                logger.info("Reingesting %s", file_path)
+
                 self.delete_source(file_path)
                 added_ids = self.ingest([file_path], use_vlm=use_vlm, ocr=ocr)
                 return len(added_ids)
@@ -325,4 +346,3 @@ class RAGStore:
                 except Exception:
                     continue
             return clean
-

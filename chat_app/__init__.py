@@ -18,4 +18,3 @@ def __getattr__(name):
         from .embedder import Embedder
         return Embedder
     raise AttributeError(name)
-

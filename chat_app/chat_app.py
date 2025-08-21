@@ -9,8 +9,6 @@ class ChatApp:
 		self.llm = LLMHandler(model_id)
 		self.rag = RAGStore()
 
-		# self.rag.add_file_to_store("C:\\Users\\wikto\\Documents\\Vobacom\\ChatVobacom\\What is RAG (Retrieval Augmented Generation)_ _ IBM.html")
-
 		# Register routes
 		self.app.add_url_rule('/', view_func=self.index, methods=['GET'])
 		self.app.add_url_rule('/chat', view_func=self.chat, methods=['POST'])
@@ -41,6 +39,7 @@ class ChatApp:
 			user_message = request.json['message']
 			# do smth about sources
 			user_message, sources = self.rag.new_prompt_and_sources(user_message)
+			print("### Test Log ###")
 			llm_response = self.llm.chat_next(user_message)
 			return jsonify({'response': llm_response})
 		except Exception as e:

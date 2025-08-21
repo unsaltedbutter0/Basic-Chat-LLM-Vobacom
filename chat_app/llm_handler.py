@@ -1,4 +1,4 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from datetime import datetime
 import torch
 import os
@@ -8,13 +8,21 @@ import os
 class LLMHandler():
 	def __init__(self, model_id="google/gemma-7b-it"):
 		self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+		bnb_cfg = BitsAndBytesConfig(
+			load_in_4bit=True,
+			bnb_4bit_use_double_quant=True,
+			bnb_4bit_quant_type="nf4",
+			bnb_4bit_compute_dtype=torch.bfloat16
+		)
+
 		self.model = AutoModelForCausalLM.from_pretrained(
 			model_id,
-			device_map="auto",
-			offload_folder="offload",
-			# load_in_4bit=True,	# 4bit quantization
-			torch_dtype=torch.float16
-		)
+			device_map={"": 0},	# force everything to cuda:0
+			torch_dtype=torch.float16,
+			low_cpu_mem_usage=True,
+			attn_implementation="sdpa",	# if your transformers/torch support it
+		).eval()
 		self.device = next(self.model.parameters()).device
 		self.conversation = []
 		

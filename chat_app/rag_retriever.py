@@ -3,7 +3,6 @@ from .rag_store import RAGStore
 
 logger = logging.getLogger(__name__)
 
-
 class RAGRetriever:
     """Encapsulates retrieval and prompt-building logic using a RAGStore."""
 
@@ -15,6 +14,7 @@ class RAGRetriever:
     def query(self, query_text, n_results=5, where=None, include=("documents", "metadatas", "distances")):
         """Query the vector store via the associated RAGStore."""
         logger.info("Querying store for: %s", query_text)
+  
         q_emb = self.store.embedder.embed([query_text])[0]
 
         kwargs = {
@@ -30,6 +30,7 @@ class RAGRetriever:
     def new_prompt_and_sources(self, prompt: str, n_results: int = 5):
         """Return a prompt augmented with retrieved context and the source metadata."""
         logger.info("Building context for prompt: %s", prompt)
+
         results = self.query(prompt, n_results, include=("documents", "metadatas", "distances"))
         texts_nested = results.get("documents", [[]])
         metas_nested = results.get("metadatas", [[]])

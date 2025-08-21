@@ -13,7 +13,6 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-
 class RAGStore:
         def __init__(self, chroma_dir="chroma_db", embedder: Embedder | None = None):
                 self.client = PersistentClient(path=chroma_dir)
@@ -77,6 +76,7 @@ class RAGStore:
                 """
                 abs_path = os.path.abspath(file_path)
                 logger.info("Deleting source %s", abs_path)
+
                 # NOTE: Do NOT pass include=["ids"]; 'ids' is always returned by get()
                 records = self.collection.get(where={"source_file": abs_path})
                 ids = records.get("ids", []) or []
@@ -91,6 +91,7 @@ class RAGStore:
                 Returns the number of newly added chunks.
                 """
                 logger.info("Reingesting %s", file_path)
+
                 self.delete_source(file_path)
                 added_ids = self.ingest([file_path], use_vlm=use_vlm, ocr=ocr)
                 return len(added_ids)

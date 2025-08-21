@@ -65,7 +65,6 @@ class ChatApp:
         logger.info("Starting ChatApp server with args: %s", kwargs)
         self.app.run(**kwargs)
 
-
 if __name__ == '__main__':
     chat_app = ChatApp("google/gemma-7b-it")
     chat_app.run(debug=True, use_reloader=False)

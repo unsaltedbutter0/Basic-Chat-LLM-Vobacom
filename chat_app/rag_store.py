@@ -1,341 +1,364 @@
 # rag_store.py
-import logging
-from docling.datamodel.base_models import InputFormat
-from docling.document_converter import PdfFormatOption
-from docling.datamodel.pipeline_options import PdfPipelineOptions, PictureDescriptionVlmOptions
-from docling_core.types.doc.document import PictureDescriptionData, DoclingDocument
-from docling.document_converter import DocumentConverter
-from docling.chunking import HybridChunker
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Iterable, List, Tuple
+
 from chromadb import PersistentClient
-import hashlib, json, os
-from .embedder import Embedder
+from docling.chunking import HybridChunker
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import (
+	ThreadedPdfPipelineOptions as PdfPipelineOptions,
+	TesseractCliOcrOptions,
+)
 from PIL import Image
 
-logger = logging.getLogger(__name__)
+from .embedder import Embedder
+
 
 class RAGStore:
-	def __init__(self, chroma_dir="chroma_db", embedder: Embedder | None = None):
-			self.client = PersistentClient(path=chroma_dir)
-			self.collection = self.client.get_or_create_collection(
-					name="documents", embedding_function=None
-			)
-			self.embedder = embedder or self._init_embedder()
+	"""
+	Vector store + ingest pipeline powered by Docling (convert + chunk),
+	Tesseract OCR (when truly needed), and Chroma.
+
+	Notes:
+	- OCR config follows Docling's current TesseractCliOcrOptions (no extra_args).
+	- Stable SHA1-based chunk IDs prevent duplicates on re-ingest.
+	"""
+
+	def __init__(
+		self,
+		chroma_dir: str = "chroma_db",
+		tesseract_dir: str | None = None,		# e.g. r"C:\Program Files\Tesseract-OCR"
+	):
+		# --- storage
+		self.client = PersistentClient(path=chroma_dir)
+		self.collection = self.client.get_or_create_collection(name="rag_chunks")
+
+		# --- NLP
+		self.embedder = Embedder()
+		self.chunker = HybridChunker()
+
+		# --- conversion / OCR
+		self.converter: DocumentConverter | None = None
+		self._captioner = None  # lazy-load when needed
+
+		# Where is tesseract.exe? No PATH required.
+		self.tesseract_dir = self._resolve_tesseract_dir(tesseract_dir)
+		self.tesseract_cmd = self._resolve_tesseract_cmd(self.tesseract_dir)
+		self._maybe_set_tessdata_prefix(self.tesseract_dir)
+
+		# supported image types (for VisionCaptioner)
+		self._image_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
+
+	# ---------------------------
+	# Public API
+	# ---------------------------
+
+	def ingest(self, file_paths: Iterable[str] | str, use_vlm: bool = False, ocr: bool = True) -> List[str]:
+		"""
+		Ingest one or many paths. Returns list of *added* chunk IDs.
+		- PDFs: auto-OCR (we'll *ignore* the 'ocr' flag and decide per file).
+		- Images: if `use_vlm=True`, add a caption chunk (VisionCaptioner).
+		"""
+		if isinstance(file_paths, (str, os.PathLike)):
+			file_paths = [str(file_paths)]
+
+		added_ids: List[str] = []
+		for fp in file_paths:
 			try:
-					self.converter = DocumentConverter()
+				abs_path = self._validate_and_abspath(fp)
 			except Exception as e:
-					logger.warning("DocumentConverter unavailable: %s", e)
-					self.converter = None
+				self._debug(f"[WARN] Skipping {fp}: {e}")
+				continue
+
 			try:
-					self.chunker = HybridChunker()
+				added_ids.extend(self._ingest_one(abs_path, use_vlm=use_vlm))
 			except Exception as e:
-					logger.warning("HybridChunker unavailable: %s", e)
-					class _DummyChunker:
-							def chunk(self, dl_doc):
-									return []
-					self.chunker = _DummyChunker()
+				self._debug(f"[ERROR] Failed to ingest {abs_path}: {e}")
+		return added_ids
 
-			self._image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
-			self._captioner = None
-			logger.info("RAGStore initialized at %s", os.path.abspath(chroma_dir))
+	def add_file_to_store(self, file_path: str) -> int:
+		"""
+		Backwards-compatible wrapper around ingest(); returns number of chunks added.
+		"""
+		added_ids = self.ingest([file_path], use_vlm=False, ocr=True)
+		return len(added_ids)
 
-	# ---------- public API -------------------------------------------------
+	def query(
+		self,
+		query_text: str,
+		n_results: int = 5,
+		where: dict | None = None,
+		include: Tuple[str, ...] = ("documents", "metadatas", "distances"),
+	):
+		"""
+		Query the vector store; returns Chroma results directly.
+		- Only pass `where` when provided; empty dicts can error.
+		- Avoid including 'ids' in include for query() to keep it portable.
+		"""
+		q_emb = self.embedder.embed([query_text])[0]
+		kwargs = {
+			"query_embeddings": [q_emb],
+			"n_results": int(n_results),
+			"include": list(include),
+		}
+		if where:
+			kwargs["where"] = where
+		return self.collection.query(**kwargs)
 
-	def ingest(self, paths: list[str], *, use_vlm: bool=False, ocr: bool=True) -> list[str]:
-			"""
-			Ingest one or more files via Docling → chunk → embed → add to Chroma.
-			- Stable, hashed chunk IDs prevent duplicates on re-ingestion.
-			- Stores actual text in Chroma's 'documents' for direct retrieval.
-			Returns the list of newly-added chunk IDs.
-			"""
-			added_ids: list[str] = []
-			for file_path in paths:
-					abs_path = self._validate_and_abspath(file_path)
-					logger.info("Ingesting %s", abs_path)
-					try:
-							ids = self._ingest_one(abs_path, use_vlm=use_vlm, ocr=ocr)
-							logger.info("Added %d chunks from %s", len(ids), abs_path)
-							added_ids.extend(ids)
-					except Exception as e:
-							logger.warning("Failed to ingest %s: %s", abs_path, e)
-							continue
+	def new_prompt(self, prompt: str, n_results: int = 5) -> str:
+		"""
+		Build a retrieval-augmented prompt expected by your /rag route.
+		"""
+		res = self.query(prompt, n_results=n_results, include=("documents",))
+		docs_nested = res.get("documents") or [[]]
+		context = "\n".join(docs_nested[0]) if docs_nested and docs_nested[0] else ""
+		return f"From User: {prompt}\nContext to base your answer: {context}"
+
+	def new_prompt_and_sources(self, prompt: str, n_results: int = 5):
+		"""
+		Like new_prompt(), but also returns a lightweight sources list for logging.
+		"""
+		res = self.query(prompt, n_results=n_results, include=("documents", "metadatas", "distances"))
+		docs_nested = res.get("documents") or [[]]
+		metas_nested = res.get("metadatas") or [[]]
+		dists_nested = res.get("distances") or [[]]
+
+		context = "\n".join(docs_nested[0]) if docs_nested and docs_nested[0] else ""
+		contexted_prompt = f"From User: {prompt}\nContext to base your answer: {context}"
+
+		sources = []
+		for i, m in enumerate(metas_nested[0] if metas_nested else []):
+			m = m or {}
+			d = dists_nested[0][i] if dists_nested and dists_nested[0] and i < len(dists_nested[0]) else None
+			sources.append({
+				"source_file": m.get("source_file"),
+				"chunk_index": m.get("chunk_index"),
+				"page": m.get("page", -1),
+				"type": m.get("type", "text"),
+				"distance": d,
+			})
+		return contexted_prompt, sources
+
+	# ---------------------------
+	# Ingest helpers
+	# ---------------------------
+
+	def _ingest_one(self, abs_path: str, *, use_vlm: bool) -> List[str]:
+		added_ids: List[str] = []
+
+		ext = Path(abs_path).suffix.lower()
+		self._debug(f"[INFO] Ingesting file with a path: {abs_path}")
+
+		# --- Pure image file → optional caption
+		if ext in self._image_exts:
+			if use_vlm:
+				try:
+					if self._captioner is None:
+						from .vision_captioner import VisionCaptioner
+						self._captioner = VisionCaptioner()
+					caption = self._captioner.caption(Image.open(abs_path))
+					if caption and caption.strip():
+						ch_id = self._stable_chunk_id(
+							abs_path,
+							{"source_file": abs_path, "chunk_index": -1, "page": -1, "type": "image_caption"},
+							caption,
+						)
+						# dedup
+						if self._ids_absent([ch_id])[0]:
+							self.collection.add(
+								documents=[caption.strip()],
+								embeddings=self.embedder.embed([caption.strip()]),
+								metadatas=[{"source_file": abs_path, "chunk_index": -1, "page": -1, "type": "image_caption"}],
+								ids=[ch_id],
+							)
+							added_ids.append(ch_id)
+				except Exception as e:
+                    # don't fail ingestion on caption hiccups
+					self._debug(f"[WARN] VisionCaptioner failed: {e}")
+
+			# even if no caption, nothing else to do for images
 			return added_ids
 
-	def add_file_to_store(self, file_path):
-			"""
-			Backwards-compatible wrapper around ingest(); returns number of chunks added.
-			"""
-			added_ids = self.ingest([file_path], use_vlm=False, ocr=True)
-			return len(added_ids)
+		# --- Document file (e.g., PDF)
+		result = self._convert_auto_ocr(abs_path)
+		doc = result.document
 
-	# ---------- management helpers ----------------------------------------
+		# Build chunks from Docling
+		raw_chunks = list(self.chunker.chunk(dl_doc=doc))
+		candidate_ids, texts_to_add, metas_to_add = self._build_text_chunks(abs_path, raw_chunks)
 
-	def delete_source(self, file_path: str) -> int:
-			"""
-			Delete all chunks that came from a given file path.
-			Returns the number of deleted chunks.
-			"""
-			abs_path = os.path.abspath(file_path)
-			logger.info("Deleting source %s", abs_path)
+		# Filter out IDs that already exist in Chroma
+		mask_new = self._ids_absent(candidate_ids)
+		ids_to_add = [cid for cid, keep in zip(candidate_ids, mask_new) if keep]
+		texts_final = [t for t, keep in zip(texts_to_add, mask_new) if keep]
+		metas_final = [m for m, keep in zip(metas_to_add, mask_new) if keep]
 
-			# NOTE: Do NOT pass include=["ids"]; 'ids' is always returned by get()
-			records = self.collection.get(where={"source_file": abs_path})
-			ids = records.get("ids", []) or []
-			if ids:
-					self.collection.delete(ids=ids)
-					logger.info("Deleted %d chunks from %s", len(ids), abs_path)
-			return len(ids)
+		if not ids_to_add:
+			return added_ids
 
-	def reingest(self, file_path: str, *, use_vlm: bool=False, ocr: bool=True) -> int:
-			"""
-			Delete all chunks for a source and ingest it again.
-			Returns the number of newly added chunks.
-			"""
-			logger.info("Reingesting %s", file_path)
+		embeddings = self.embedder.embed(texts_final)
+		self.collection.add(
+			documents=texts_final,
+			embeddings=embeddings,
+			metadatas=metas_final,
+			ids=ids_to_add,
+		)
+		added_ids.extend(ids_to_add)
+		return added_ids
 
-			self.delete_source(file_path)
-			added_ids = self.ingest([file_path], use_vlm=use_vlm, ocr=ocr)
-			return len(added_ids)
+	def _build_text_chunks(self, abs_path: str, chunks) -> Tuple[List[str], List[str], List[dict]]:
+		candidate_ids: List[str] = []
+		texts_to_add: List[str] = []
+		metas_to_add: List[dict] = []
 
-	def list_sources(self) -> list[str]:
-			"""
-			Return a sorted list of unique source_file paths currently indexed.
-			"""
-			records = self.collection.get(include=["metadatas"])
-			metas = records.get("metadatas", []) or []
-			seen = set()
-			for m in metas:
-					src = (m or {}).get("source_file")
-					if src:
-							seen.add(src)
-			return sorted(seen)
+		for idx, ch in enumerate(chunks):
+			txt = getattr(ch, "text", "")
+			if not isinstance(txt, str) or not txt.strip():
+				continue
 
-	def stats(self) -> dict:
-			"""
-			Simple counts for quick visibility.
-			"""
-			records = self.collection.get(include=[])
-			total_chunks = len(records.get("ids", []))
-			return {
-					"chunks": total_chunks,
-					"sources": len(self.list_sources())
+			# Normalize text artifacts from PDFs (ligatures, soft hyphens, split words, ws)
+			txt = self._normalize_text(txt)
+			if not txt or len(txt) < 40:	# skip junky/ultra-short chunks
+				continue
+
+			meta_raw = {
+				"source_file": abs_path,
+				"chunk_index": int(idx),
+				"page": int(getattr(ch, "page", -1)) if getattr(ch, "page", None) is not None else -1,
+				"type": self._safe_str(getattr(ch, "type", None)) or "text",
 			}
+			meta = self._sanitize_metadata(meta_raw)
+			ch_id = self._stable_chunk_id(abs_path, meta, txt)
 
-	# ---------- internals (ingest helpers) ---------------------------------
+			candidate_ids.append(ch_id)
+			texts_to_add.append(txt)
+			metas_to_add.append(meta)
 
-	def _ingest_one(self, abs_path: str, *, use_vlm: bool, ocr: bool) -> list[str]:
-			"""Ingest a single absolute path and return added chunk IDs."""
-			# 1) Convert document with Docling
-			result = self._convert_with_docling(abs_path, ocr=ocr)
-			doc = result.document
+		return candidate_ids, texts_to_add, metas_to_add
 
-			# 2) Chunk
-			chunks = self._chunk_doc(doc)
+	# ---------------------------
+	# Docling conversion & OCR
+	# ---------------------------
 
-			# 3) Build candidates from text chunks
-			cand_ids, texts, metas = self._build_text_chunks(abs_path, chunks)
+	def _convert_auto_ocr(self, abs_path: str):
+		"""
+		Two-pass strategy:
+		1) Try without OCR (fastest for text-native PDFs).
+		2) If extracted text is sparse, retry with OCR enabled.
+		"""
+		res1 = self._docling_convert(abs_path, ocr=False, do_picture_description=False)
+		doc1 = res1.document
+		total_len = sum(len(getattr(p, "text", "") or "") for p in getattr(doc1, "pages", []))
 
-			# 4) 
-			pic_ids, pic_texts, pic_metas = self._extract_picture_chunks(doc, abs_path)
-			cand_ids.extend(pic_ids)
-			texts.extend(pic_texts)
-			metas.extend(pic_metas)
+		# Heuristic: enough text → keep no-OCR result
+		if total_len >= 2000 or any(len(getattr(p, "text", "") or "") > 200 for p in getattr(doc1, "pages", [])):
+			return res1
 
-			# 4) Optionally caption images (VLM)
-			if use_vlm:
-					cap_id, cap_text, cap_meta = self._maybe_caption_image(abs_path)
-					if cap_id is not None:
-							cand_ids.append(cap_id)
-							texts.append(cap_text)
-							metas.append(cap_meta)
+		# Otherwise OCR (page-selective; not full-page)
+		return self._docling_convert(abs_path, ocr=True, do_picture_description=False)
 
-			# 5) Filter out existing IDs
-			mask = self._missing_id_mask(cand_ids)
-			if not any(mask):
-					return []
-			ids_to_add = [i for i, keep in zip(cand_ids, mask) if keep]
-			texts_final = [t for t, keep in zip(texts, mask) if keep]
-			metas_final = [m for m, keep in zip(metas, mask) if keep]
+	def _docling_convert(self, abs_path: str, *, ocr: bool, do_picture_description: bool = False):
+		popts = PdfPipelineOptions()
+		# Keep VLM off for PDFs unless explicitly requested
+		popts.do_picture_description = bool(do_picture_description)
 
-			# 6) Embed + add to Chroma
-			embeddings = self._embed_texts(texts_final)
-			self._add_to_collection(ids_to_add, texts_final, metas_final, embeddings)
-			return ids_to_add
+		# OCR tuning: stable + quiet
+		popts.images_scale = 2.0			# raster a bit larger → better OCR stability
+		popts.ocr_batch_size = 1			# avoid over-threading Tesseract on Windows
+
+		popts.do_ocr = bool(ocr)
+		if popts.do_ocr:
+			# Point directly at tesseract.exe; no PATH required
+			popts.ocr_options = TesseractCliOcrOptions(
+				tesseract_cmd=self.tesseract_cmd,
+				path=str(self.tesseract_dir) if self.tesseract_dir else None,
+				lang=["eng", "pol"],				# explicit langs; avoids OSD costs
+				force_full_page_ocr=False,			# prefer text layer; OCR only raster regions
+				bitmap_area_threshold=0.2,			# skip tiny bitmaps → less noise
+			)
+
+		self.converter = DocumentConverter(format_options={
+			InputFormat.PDF: PdfFormatOption(pipeline_options=popts)
+		})
+		return self.converter.convert(abs_path)
+
+	# ---------------------------
+	# Utilities
+	# ---------------------------
 
 	def _validate_and_abspath(self, file_path: str) -> str:
-			"""Ensure path exists and return absolute path."""
-			if not os.path.exists(file_path):
-					raise FileNotFoundError(f"File not found: {file_path}")
-			return os.path.abspath(file_path)
+		if not file_path:
+			raise ValueError("Empty file path.")
+		p = Path(file_path)
+		if not p.exists():
+			raise FileNotFoundError(f"File not found: {file_path}")
+		if not p.is_file():
+			raise IsADirectoryError(f"Not a file: {file_path}")
+		return str(p.resolve())
 
-	def _convert_with_docling(self, abs_path: str, *, ocr: bool):
-			"""
-			Run Docling conversion with pdf's image annotation.
-			"""
-			popts = PdfPipelineOptions()
-			popts.do_picture_description = True
-			popts.picture_description_options = PictureDescriptionVlmOptions(
-					repo_id="llava-hf/llava-1.5-7b-hf",
-			)
-			self.converter = DocumentConverter(format_options={
-					InputFormat.PDF: PdfFormatOption(pipeline_options=popts)
-			})
-			return self.converter.convert(abs_path)
+	def _ids_absent(self, ids: List[str]) -> List[bool]:
+		"""
+		Returns a boolean mask: True where id is NOT present in the collection.
+		"""
+		try:
+			found = self.collection.get(ids=ids)
+		except Exception:
+			found = {"ids": []}
+		found_ids = set(found.get("ids", []) or [])
+		return [(_id not in found_ids) for _id in ids]
 
-	def _chunk_doc(self, dl_doc: DoclingDocument):
-			"""Chunk a DoclingDocument using HybridChunker (titles + semantic)."""
-			return list(self.chunker.chunk(dl_doc=dl_doc))
+	def _stable_chunk_id(self, abs_path: str, meta: dict, text: str) -> str:
+		payload = json.dumps(
+			{
+				"src": abs_path,
+				"meta": meta,
+				"sha1": hashlib.sha1(text.encode("utf-8")).hexdigest(),
+			},
+			sort_keys=True,
+			ensure_ascii=False,
+		)
+		return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
-	def _build_text_chunks(self, abs_path: str, chunks):
-			"""
-			From Docling chunks, produce candidate IDs, texts, and metadata.
-			Ignores empty / whitespace-only text chunks.
-			"""
-			candidate_ids, texts_to_add, metas_to_add = [], [], []
-			for idx, ch in enumerate(chunks):
-					txt = getattr(ch, "text", "")
-					if not isinstance(txt, str) or not txt.strip():
-							continue
-					meta_raw = {
-							"source_file": abs_path,
-							"chunk_index": int(idx),
-							"page": int(getattr(ch, "page", -1)) if getattr(ch, "page", None) is not None else -1,
-							"type": self._safe_str(getattr(ch, "type", None)),
-					}
-					meta = self._sanitize_metadata(meta_raw)
-					ch_id = self._stable_chunk_id(abs_path, meta, txt)
-					candidate_ids.append(ch_id)
-					texts_to_add.append(txt.strip())
-					metas_to_add.append(meta)
-			return candidate_ids, texts_to_add, metas_to_add
-
-	def _extract_picture_chunks(self, doc, abs_path: str):
-			ids, texts, metas = [], [], []
-			for pic in getattr(doc, "pictures", []):
-					# Users caption
-					cap = (pic.caption_text(doc=doc) or "").strip()
-					if cap:
-							meta = self._sanitize_metadata({
-									"source_file": abs_path,
-									"type": "picture_caption",
-									"page": getattr(pic, "page", -1) or -1,
-									"picture_ref": getattr(pic, "self_ref", ""),
-									"image_uri": str(getattr(getattr(pic, "image", None), "uri", "")),
-							})
-							ids.append(self._stable_chunk_id(abs_path, meta, cap))
-							texts.append(cap)
-							metas.append(meta)
-
-					# VLM's annotation
-					for ann in getattr(pic, "annotations", []):
-							desc = (getattr(ann, "text", "") or "").strip()
-							if not desc:
-									continue
-							meta = self._sanitize_metadata({
-									"source_file": abs_path,
-									"type": "picture_annotation",
-									"page": getattr(pic, "page", -1) or -1,
-									"picture_ref": getattr(pic, "self_ref", ""),
-									"provenance": getattr(ann, "provenance", ""),
-									"image_uri": str(getattr(getattr(pic, "image", None), "uri", "")),
-							})
-							ids.append(self._stable_chunk_id(abs_path, meta, desc))
-							texts.append(desc)
-							metas.append(meta)
-			return ids, texts, metas
-
-	def _maybe_caption_image(self, abs_path: str):
-			"""
-			If `abs_path` is an image and VLM is enabled, run captioning and return a
-			single (id, text, meta) tuple; otherwise (None, None, None).
-			"""
-			ext = os.path.splitext(abs_path)[1].lower()
-			if ext not in self._image_exts:
-					return None, None, None
-			try:
-					if self._captioner is None:
-							from .vision_captioner import VisionCaptioner
-							self._captioner = VisionCaptioner()
-					from PIL import Image
-					with Image.open(abs_path) as img:
-							img = img.convert("RGB")
-							caption = self._captioner.caption(img)
-					if caption and isinstance(caption, str) and caption.strip():
-							meta_cap_raw = {
-									"source_file": abs_path,
-									"chunk_index": -1,
-									"page": -1,
-									"type": "image_caption",
-							}
-							meta_cap = self._sanitize_metadata(meta_cap_raw)
-							ch_id_cap = self._stable_chunk_id(abs_path, meta_cap, caption)
-							return ch_id_cap, caption.strip(), meta_cap
-			except Exception as e:
-					print(f"[WARN] Captioning failed for {abs_path}: {e}")
-			return None, None, None
-
-	def _embed_texts(self, texts: list[str]):
-			"""Return embeddings for the given list of texts using self.embedder."""
-			return self.embedder.embed(texts)
-
-	def _init_embedder(self):
-			try:
-					return Embedder()
-			except Exception:
-					class _DummyEmbedder:
-							def embed(self, texts):
-									return [[0.0] for _ in texts]
-					return _DummyEmbedder()
-
-	def _add_to_collection(self, ids, texts, metas, embeddings):
-			"""Add records to Chroma collection (documents + embeddings + metadata)."""
-			self.collection.add(
-					documents=texts,
-					embeddings=embeddings,
-					metadatas=metas,
-					ids=ids,
-			)
-
-	# ---------- internals (generic) ---------------------------------------
-
-	def _stable_chunk_id(self, source_path: str, meta: dict, text: str) -> str:
-			"""
-			Generates uniqe id for the chunk.
-			"""
-			payload = {
-					"src": os.path.abspath(source_path),
-					"meta": meta,
-					"text": text
+	def _normalize_text(self, t: str) -> str:
+		# Basic fixes for PDF artifacts (ligatures, soft hyphen, intra-word spaces)
+		try:
+			import unicodedata, re
+			_SOFT_HYPHEN = "\u00AD"
+			_LIG_MAP = {
+				"\uFB00": "ff",	 # ﬀ
+				"\uFB01": "fi",	 # ﬁ
+				"\uFB02": "fl",	 # ﬂ
+				"\uFB03": "ffi", # ﬃ
+				"\uFB04": "ffl", # ﬄ
 			}
-			key = json.dumps(payload, sort_keys=True, ensure_ascii=False)
-			digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
-			return f"ch:{digest}"
-
-	def _missing_id_mask(self, ids: list[str]) -> list[bool]:
-			"""
-			Given a list of candidate IDs, return a boolean mask where True means
-			the ID is not present in the collection yet.
-			"""
-			if not ids:
-					return []
-			found = self.collection.get(ids=ids, include=[])
-			found_ids = set(found.get("ids", []) or [])
-			return [(_id not in found_ids) for _id in ids]
-
-	def _safe_str(self, val):
-			"""
-			Safely stringify enums/objects; return None -> None so sanitizer can drop it.
-			"""
-			if val is None:
-					return None
-			try:
-					return str(val)
-			except Exception:
-					return None
+			t = unicodedata.normalize("NFKC", t or "")
+			for k, v in _LIG_MAP.items():
+				t = t.replace(k, v)
+			t = t.replace(_SOFT_HYPHEN, "")
+			# Collapse weird intra-word splits occasionally seen in PDFs
+			t = re.sub(r"([A-Za-z])\s+([A-Za-z])", r"\1 \2", t)
+			# Tidy whitespace
+			t = re.sub(r"[ \t]+", " ", t)
+			t = re.sub(r"\s*\n\s*", "\n", t)
+			return t.strip()
+		except Exception:
+			return (t or "").strip()
 
 	def _sanitize_metadata(self, meta: dict) -> dict:
-		"""Normalize metadata values for storage in Chroma."""
+		"""
+		Chroma metadata must be Bool | Int | Float | Str.
+		- Drop None
+		- Cast non-primitive objects to str
+		"""
 		clean = {}
-		for k, v in meta.items():
+		for k, v in (meta or {}).items():
 			if v is None:
 				continue
 			if isinstance(v, (bool, int, float, str)):
@@ -346,3 +369,51 @@ class RAGStore:
 			except Exception:
 				continue
 		return clean
+
+	def _safe_str(self, val):
+		"""
+		Safely stringify enums/objects; return None -> None so sanitizer can drop it.
+		"""
+		if val is None:
+			return None
+		try:
+			return str(val)
+		except Exception:
+			return None
+
+	def _resolve_tesseract_dir(self, preferred: str | None) -> Path | None:
+		if preferred:
+			p = Path(preferred)
+			return p if p.exists() else None
+		# Try common locations on Windows; noop elsewhere
+		candidates = []
+		if sys.platform.startswith("win"):
+			candidates = [
+				Path(r"C:\Program Files\Tesseract-OCR"),
+				Path(r"C:\Program Files (x86)\Tesseract-OCR"),
+				Path.home() / "AppData" / "Local" / "Tesseract-OCR",
+			]
+		for d in candidates:
+			if (d / "tesseract.exe").exists():
+				return d
+		return None
+
+	def _resolve_tesseract_cmd(self, tesseract_dir: Path | None) -> str:
+		if tesseract_dir:
+			cmd = (tesseract_dir / "tesseract.exe").resolve()
+			return str(cmd)
+		# Fallback: let system PATH resolve it (may fail, but Docling will surface error)
+		return "tesseract"
+
+	def _maybe_set_tessdata_prefix(self, tesseract_dir: Path | None) -> None:
+		if not tesseract_dir:
+			return
+		td = tesseract_dir / "tessdata"
+		if td.exists():
+			os.environ.setdefault("TESSDATA_PREFIX", str(td) + os.sep)
+
+	def _debug(self, msg: str) -> None:
+		try:
+			print(msg, flush=True)
+		except Exception:
+			pass

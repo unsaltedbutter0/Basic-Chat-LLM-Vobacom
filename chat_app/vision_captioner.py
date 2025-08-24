@@ -14,13 +14,12 @@ class VisionCaptioner:
 	):
 		self.model_id = model_id
 		self.max_new_tokens = int(max_new_tokens)
-		self.processor = AutoProcessor.from_pretrained(self.model_id)
+		self.processor = AutoProcessor.from_pretrained(self.model_id, use_fast=True)
 		self.model = LlavaForConditionalGeneration.from_pretrained(
 			self.model_id,
 			torch_dtype=torch_dtype,
 			device_map=device_map,
 		)
-
 		self._device = getattr(self.model, "device", torch.device("cpu"))
 
 	def caption(self, image, prompt: str = None) -> str:
@@ -52,11 +51,15 @@ class VisionCaptioner:
 			messages, add_generation_prompt=True
 		)
 
-		inputs = self.processor(
+		enc = self.processor(
 			images=img_rgb,
 			text=chat,
 			return_tensors="pt",
-		).to(self._device)
+			truncation=True,
+			max_length=getattr(self.processor.tokenizer, "model_max_length", 512),
+		)
+		inputs = {k: v.to(self._device) for k, v in enc.items()}
+
 
 		with torch.inference_mode():
 			gen_ids = self.model.generate(

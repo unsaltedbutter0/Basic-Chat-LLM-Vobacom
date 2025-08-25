@@ -218,12 +218,17 @@
 			color: #a0aec0;
 		}
 
-		.chat-input:focus {
-			outline: none;
-			border-color: #f59e0b;
-			box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
-			background: rgba(74, 85, 104, 0.95);
-		}
+                .chat-input:focus {
+                        outline: none;
+                        border-color: #f59e0b;
+                        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+                        background: rgba(74, 85, 104, 0.95);
+                }
+
+                .chat-input.dragover {
+                        border-color: #f59e0b;
+                        background: rgba(74, 85, 104, 0.9);
+                }
 
 		.send-button {
 			padding: 12px 18px;
@@ -356,7 +361,23 @@
                 const ingestButton = document.getElementById('ingestButton');
                 const recursiveCheckbox = document.getElementById('recursive');
 
-		let isRAGMode = false;
+                folderInput.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        folderInput.classList.add('dragover');
+                });
+                folderInput.addEventListener('dragleave', () => {
+                        folderInput.classList.remove('dragover');
+                });
+                folderInput.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        folderInput.classList.remove('dragover');
+                        const files = e.dataTransfer.files;
+                        if (files.length > 0) {
+                                folderInput.value = files[0].path || '';
+                        }
+                });
+
+                let isRAGMode = false;
 
 		// Toggle mode functionality
 		modeToggle.addEventListener('click', function() {

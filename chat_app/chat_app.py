@@ -45,7 +45,15 @@ class ChatApp:
             user_message = request.json['message']
             logger.info("Chat message received: %s", user_message)
             llm_response = self.llm.chat_next(user_message)
-            return jsonify({'response': llm_response}), 200
+            return jsonify({
+                'message': {
+                    'format': 'markdown',
+                    'content': llm_response,
+                },
+                'meta': {
+                    'mode': 'llm',
+                }
+            }), 200
         except Exception as e:
             logger.exception("Error in chat route: %s", e)
             return jsonify({'error': str(e)})
@@ -60,7 +68,16 @@ class ChatApp:
 
             # Stateless RAG turn: reset history so prior chit-chat doesn't leak
             llm_response = self.llm.chat_messages(messages, reset=True)
-            return jsonify({'response': llm_response, 'sources': sources}), 200
+            return jsonify({
+                'message': {
+                    'format': 'markdown',
+                    'content': llm_response,
+                },
+                'meta': {
+                    'sources': sources,
+                    'mode': 'rag',
+                }
+            }), 200
         except Exception as e:
             logger.exception("Error in rag route: %s", e)
             return jsonify({'error': str(e)})

@@ -337,7 +337,20 @@
 				display: none;
 			}
 		}
+		.user-message, .bot-message, .error-message { white-space: pre-wrap; }
+                .message { overflow-wrap: anywhere; word-break: break-word; }
+                .message p { margin: 0 0 .6em; }
+                .message p:last-child { margin-bottom: 0; }
+                .message ul, .message ol { margin: .6em 0; padding-left: 1.25rem; }
+                .message pre, .message code { white-space: pre-wrap; word-break: break-word; }
+                .message pre { overflow-x: auto; }
+                .message img { max-width: 100%; height: auto; display: block; }
+                .message table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+                .message th, .message td { border-bottom: 1px solid rgba(255,255,255,.08); padding: .25rem .5rem; }
 	</style>
+	<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+
 </head>
 <body>
 	<div class="chat-container">
@@ -366,7 +379,7 @@
         </div>
 
         <div class="chat-messages" id="chatMessages">
-			<div class="bot-message">
+			<div class="message bot-message">
 				Hello! I'm VobaChat, your AI assistant. How can I help you today?
 			</div>
 		</div>
@@ -457,14 +470,44 @@
                 sendButton.addEventListener('click', sendMessage);
                 ingestButton.addEventListener('click', ingestFolder);
 
-		function addMessage(content, isUser = false, isError = false) {
-			const messageDiv = document.createElement('div');
-			if (isError) {
-				messageDiv.className = 'error-message';
+		function normalizeMessagePayload(data) {
+			// Back-compat with old `{ response: "..." }`
+			if (data?.message && typeof data.message.content === 'string') return data.message;
+			if (typeof data?.response === 'string') return { format: 'text', content: data.response };
+			return { format: 'text', content: String(data ?? '') };
+		}
+
+		function renderContentInto(el, payload) {
+			const { format, content } = payload || {};
+			if (format === 'markdown') {
+				const html = DOMPurify.sanitize(marked.parse(content || ''));
+				el.innerHTML = html;
 			} else {
-				messageDiv.className = isUser ? 'user-message' : 'bot-message';
+				el.textContent = content || '';
+				el.style.whiteSpace = 'pre-wrap'; // keep \n in plaintext
 			}
-			messageDiv.textContent = content;
+		}
+
+		function addMessage(payloadOrString, isUser = false, isError = false) {
+			const messageDiv = document.createElement('div');
+			messageDiv.className = isError
+                                ? 'message error-message'
+                                : (isUser ? 'message user-message' : 'message bot-message');
+
+			// Keep user/error as plain text for safety
+			if (isUser || isError) {
+				const text = typeof payloadOrString === 'string'
+					? payloadOrString
+					: (payloadOrString?.content ?? String(payloadOrString ?? ''));
+				messageDiv.textContent = text;
+				messageDiv.style.whiteSpace = 'pre-wrap';
+			} else {
+				const payload = (typeof payloadOrString === 'string')
+					? { format: 'text', content: payloadOrString }
+					: payloadOrString;
+				renderContentInto(messageDiv, payload);
+			}
+
 			chatMessages.appendChild(messageDiv);
 			chatMessages.scrollTop = chatMessages.scrollHeight;
 		}
@@ -492,12 +535,15 @@
                         })
                         .then(response => response.json())
                         .then(data => {
-                                if (data.error) {
-                                        addMessage(data.error, false, true);
-                                } else {
-                                        addMessage(`Ingested ${data.files_ingested} files.`, false);
-                                }
-                        })
+				hideTypingIndicator();
+				if (data.error) {
+					addMessage(data.error, false, true);
+					return;
+				}
+				const payload = normalizeMessagePayload(data);
+				addMessage(payload, false);
+			})
+
                         .catch(error => {
                                 console.error('Error:', error);
                                 addMessage('Error ingesting folder.', false, true);
@@ -535,13 +581,15 @@
 			})
 			.then(response => response.json())
 			.then(data => {
-				hideTypingIndicator();
-				if (data.error) {
-					addMessage(data.error, false, true);
-				} else {
-					addMessage(data.response, false);
-				}
-			})
+                                hideTypingIndicator();
+                                if (data.error) {
+                                        addMessage(data.error, false, true);
+                                        return;
+                                }
+                                const payload = normalizeMessagePayload(data);
+                                addMessage(payload, false);
+                        })
+
 			.catch(error => {
 				hideTypingIndicator();
 				console.error('Error:', error);

@@ -56,7 +56,8 @@ class TestChatApp(unittest.TestCase):
         data = json.loads(response.data)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(data['response'], "Mocked response")
+        self.assertEqual(data['message']['content'], "Mocked response")
+        self.assertEqual(data['message']['format'], "markdown")
         self.MockLLMHandler.return_value.chat_next.assert_called_once_with("Hello")
 
     def test_rag_route(self):
@@ -64,8 +65,9 @@ class TestChatApp(unittest.TestCase):
         data = json.loads(response.data)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(data['response'], "Mocked response")
-        self.assertEqual(data['sources'], ["Mocked sources"])
+        self.assertEqual(data['message']['content'], "Mocked response")
+        self.assertEqual(data['message']['format'], "markdown")
+        self.assertEqual(data['meta']['sources'], ["Mocked sources"])
         self.MockRAGRetriever.return_value.build_messages.assert_called_once_with("Hello", n_results=5)
         self.MockLLMHandler.return_value.chat_messages.assert_called_once_with(["Mocked message"], reset=True)
 

@@ -60,7 +60,7 @@ class RAGStore:
 	# Public API
 	# ---------------------------
 
-	def ingest(self, file_paths: Iterable[str] | str, use_vlm: bool = False, ocr: bool = True) -> List[str]:
+	def ingest(self, file_paths: Iterable[str] | str, use_vlm: bool = True, ocr: bool = True) -> List[str]:
 		"""
 		Ingest one or many paths. Returns list of *added* chunk IDs.
 		- PDFs: auto-OCR (we'll *ignore* the 'ocr' flag and decide per file).

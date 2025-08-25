@@ -233,12 +233,17 @@
 			color: #a0aec0;
 		}
 
-		.chat-input:focus {
-			outline: none;
-			border-color: #f59e0b;
-			box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
-			background: rgba(74, 85, 104, 0.95);
-		}
+                .chat-input:focus {
+                        outline: none;
+                        border-color: #f59e0b;
+                        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+                        background: rgba(74, 85, 104, 0.95);
+                }
+
+                .chat-input.dragover {
+                        border-color: #f59e0b;
+                        background: rgba(74, 85, 104, 0.9);
+                }
 
 		.send-button {
 			padding: 18px 28px;
@@ -262,11 +267,23 @@
 			box-shadow: 0 8px 20px rgba(245, 158, 11, 0.4);
 		}
 
-		.send-button:disabled {
-			opacity: 0.6;
-			cursor: not-allowed;
-			transform: none;
-		}
+                .send-button:disabled {
+                        opacity: 0.6;
+                        cursor: not-allowed;
+                        transform: none;
+                }
+
+                .recursive-option {
+                        display: flex;
+                        align-items: center;
+                        color: #e2e8f0;
+                        gap: 8px;
+                }
+
+                .recursive-option input {
+                        width: 16px;
+                        height: 16px;
+                }
 
 		.error-message {
 			background: rgba(220, 38, 38, 0.2);
@@ -329,18 +346,26 @@
 			<div class="header-center">
 				<h1>VobaChat</h1>
 			</div>
-			<div class="header-right">
-				<div class="mode-toggle">
-					<span class="mode-label" id="modeLabel">LLM</span>
-					<div class="toggle-switch" id="modeToggle">
-						<div class="toggle-slider"></div>
-					</div>
-					<span class="mode-label">RAG</span>
-				</div>
-			</div>
-		</div>
-		
-		<div class="chat-messages" id="chatMessages">
+                <div class="header-right">
+                        <div class="mode-toggle">
+                                <span class="mode-label" id="modeLabel">LLM</span>
+                                <div class="toggle-switch" id="modeToggle">
+                                        <div class="toggle-slider"></div>
+                                </div>
+                                <span class="mode-label">RAG</span>
+                        </div>
+                </div>
+        </div>
+
+        <div class="chat-input-container">
+                <div class="input-group">
+                        <input type="text" class="chat-input" id="folderPath" placeholder="Folder path">
+                        <label class="recursive-option"><input type="checkbox" id="recursive">Recursive</label>
+                        <button class="send-button" id="ingestButton">Ingest</button>
+                </div>
+        </div>
+
+        <div class="chat-messages" id="chatMessages">
 			<div class="bot-message">
 				Hello! I'm VobaChat, your AI assistant. How can I help you today?
 			</div>
@@ -370,14 +395,40 @@
 	</div>
 
 	<script>
-		const chatMessages = document.getElementById('chatMessages');
-		const messageInput = document.getElementById('messageInput');
-		const sendButton = document.getElementById('sendButton');
-		const typingIndicator = document.getElementById('typingIndicator');
-		const modeToggle = document.getElementById('modeToggle');
-		const modeLabel = document.getElementById('modeLabel');
+                const chatMessages = document.getElementById('chatMessages');
+                const messageInput = document.getElementById('messageInput');
+                const sendButton = document.getElementById('sendButton');
+                const typingIndicator = document.getElementById('typingIndicator');
+                const modeToggle = document.getElementById('modeToggle');
+                const modeLabel = document.getElementById('modeLabel');
+                const folderInput = document.getElementById('folderPath');
+                const ingestButton = document.getElementById('ingestButton');
+                const recursiveCheckbox = document.getElementById('recursive');
 
-		let isRAGMode = false;
+                window.addEventListener('dragover', (e) => e.preventDefault());
+                window.addEventListener('drop', (e) => e.preventDefault());
+
+                folderInput.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        folderInput.classList.add('dragover');
+                });
+                folderInput.addEventListener('dragleave', () => {
+                        folderInput.classList.remove('dragover');
+                });
+                folderInput.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        folderInput.classList.remove('dragover');
+                        let droppedPath = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list');
+                        if (!droppedPath && e.dataTransfer.files.length > 0) {
+                                const file = e.dataTransfer.files[0];
+                                droppedPath = file.path || file.name;
+                        }
+                        if (droppedPath) {
+                                folderInput.value = droppedPath.replace(/^file:\/\//, '');
+                        }
+                });
+
+                let isRAGMode = false;
 
 		// Toggle mode functionality
 		modeToggle.addEventListener('click', function() {
@@ -403,7 +454,8 @@
 			}
 		});
 
-		sendButton.addEventListener('click', sendMessage);
+                sendButton.addEventListener('click', sendMessage);
+                ingestButton.addEventListener('click', ingestFolder);
 
 		function addMessage(content, isUser = false, isError = false) {
 			const messageDiv = document.createElement('div');
@@ -422,9 +474,38 @@
 			chatMessages.scrollTop = chatMessages.scrollHeight;
 		}
 
-		function hideTypingIndicator() {
-			typingIndicator.style.display = 'none';
-		}
+                function hideTypingIndicator() {
+                        typingIndicator.style.display = 'none';
+                }
+
+                function ingestFolder() {
+                        const folder = folderInput.value.trim();
+                        const recursive = recursiveCheckbox.checked;
+                        if (!folder) return;
+                        ingestButton.disabled = true;
+                        fetch('/ingest', {
+                                method: 'POST',
+                                headers: {
+                                        'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({ folder: folder, recursive: recursive })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                                if (data.error) {
+                                        addMessage(data.error, false, true);
+                                } else {
+                                        addMessage(`Ingested ${data.files_ingested} files.`, false);
+                                }
+                        })
+                        .catch(error => {
+                                console.error('Error:', error);
+                                addMessage('Error ingesting folder.', false, true);
+                        })
+                        .finally(() => {
+                                ingestButton.disabled = false;
+                        });
+                }
 
 		function sendMessage() {
 			const message = messageInput.value.trim();

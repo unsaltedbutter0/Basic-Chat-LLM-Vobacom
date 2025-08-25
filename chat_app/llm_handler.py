@@ -1,8 +1,7 @@
 # llm_handler.py
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from datetime import datetime
-import torch
-import os
+import os, torch, json
 
 class LLMHandler():
 	def __init__(self, model_id="NousResearch/Hermes-3-Llama-3.1-8B"):
@@ -38,16 +37,21 @@ class LLMHandler():
 		filename = f"conversation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 		os.makedirs("conversation_logs", exist_ok=True)
 		path = os.path.join("conversation_logs", filename)
-		self.convo_log_file = open(path, 'w')
+		self.convo_log_file = open(path, 'w', encoding='utf-8', newline='\n')
 		self.convo_log_file_reset_tag = '######################## Conversation Restarted ########################\n'
 
 	def reset(self):
 		self.convo_log_file.write(self.convo_log_file_reset_tag)
+		self.convo_log_file.flush()
 		self.conversation = [{"role": "system", "content": self.system_preamble}]
+
 
 	def add_message(self, role: str, content: str):
 		self.conversation.append({"role": role, "content": content})
-		self.convo_log_file.write(f'{{"role": "{role}", "content": "{content}"}}\n')
+		if self.convo_log_file:
+			rec = {"role": role, "content": content}
+			self.convo_log_file.write(json.dumps(rec, ensure_ascii=False) + "\n")
+			self.convo_log_file.flush()
 
 	def add_user_message(self, message: str):
 		self.add_message("user", message)
@@ -76,7 +80,7 @@ class LLMHandler():
 	def generate_response(self, input_ids):
 		return self.model.generate(
 			**input_ids,
-			max_new_tokens=256,
+			max_new_tokens=500,
 			eos_token_id=self.tokenizer.eos_token_id
 		)
 

@@ -469,7 +469,6 @@
 
                 sendButton.addEventListener('click', sendMessage);
                 ingestButton.addEventListener('click', ingestFolder);
-
 		function normalizeMessagePayload(data) {
 			// Back-compat with old `{ response: "..." }`
 			if (data?.message && typeof data.message.content === 'string') return data.message;

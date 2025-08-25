@@ -58,6 +58,7 @@ class TestChatApp(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(data['message']['content'], "Mocked response")
         self.assertEqual(data['message']['format'], "markdown")
+
         self.MockLLMHandler.return_value.chat_next.assert_called_once_with("Hello")
 
     def test_rag_route(self):

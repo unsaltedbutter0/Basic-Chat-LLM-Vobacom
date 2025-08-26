@@ -63,7 +63,7 @@ class ChatApp:
             user_message = request.json['message']
             logger.info("RAG chat message received: %s", user_message)
 
-            messages, sources = self.rag.build_messages(user_message, n_results=5)
+            messages, sources = self.rag.build_messages_hybrid(user_message, top_k=3)
             logger.info("Built RAG messages with %d sources", len(sources))
 
             # Stateless RAG turn: reset history so prior chit-chat doesn't leak

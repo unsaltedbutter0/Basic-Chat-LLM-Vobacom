@@ -19,6 +19,7 @@ from docling.datamodel.pipeline_options import (
 from PIL import Image
 
 from .embedder import Embedder
+from .sparse_bm25 import BM25Index
 
 
 class RAGStore:
@@ -56,6 +57,10 @@ class RAGStore:
 		# supported image types (for VisionCaptioner)
 		self._image_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
 
+		# load sparse BM25
+		self.bm25 = BM25Index(persist_path=os.path.join(chroma_dir, "bm25_corpus.jsonl"))
+		self.bm25.load()
+
 	# ---------------------------
 	# Public API
 	# ---------------------------
@@ -69,8 +74,10 @@ class RAGStore:
 		if isinstance(file_paths, (str, os.PathLike)):
 			file_paths = [str(file_paths)]
 
+		sorted_paths = self._sort_flag_paths(file_paths) # -> [(path, is_image)]
+
 		added_ids: List[str] = []
-		for fp in file_paths:
+		for fp, is_image in sorted_paths:
 			try:
 				abs_path = self._validate_and_abspath(fp)
 			except Exception as e:
@@ -81,6 +88,11 @@ class RAGStore:
 				added_ids.extend(self._ingest_one(abs_path, use_vlm=use_vlm))
 			except Exception as e:
 				self._debug(f"[ERROR] Failed to ingest {abs_path}: {e}")
+
+		if self._captioner is not None:
+			self._captioner.unload()
+			self._captioner = None
+
 		return added_ids
 
 	def add_file_to_store(self, file_path: str) -> int:
@@ -111,6 +123,21 @@ class RAGStore:
 		if where:
 			kwargs["where"] = where
 		return self.collection.query(**kwargs)
+
+	def sparse_query(self, query_text: str, n_results: int = 20):
+		hits = self.bm25.search(query_text, top_k=int(n_results))
+		if not hits:
+			return {"ids": [[]], "documents": [[]], "metadatas": [[]], "scores": [[]]}
+		ids = [h[0] for h in hits]
+		got = self.collection.get(ids=ids, include=["documents", "metadatas"])
+		# keep BM25 order
+		id_to_i = {i: k for k, i in enumerate(got.get("ids", []))}
+		ordered = [got["ids"][id_to_i[i]] for i in ids if i in id_to_i]
+		docs = [got["documents"][id_to_i[i]] for i in ordered]
+		metas = [got["metadatas"][id_to_i[i]] for i in ordered]
+		scores = [s for (_, s) in hits if _ in id_to_i]
+		return {"ids": [ordered], "documents": [docs], "metadatas": [metas], "scores": [scores]}
+
 
 	def new_prompt(self, prompt: str, n_results: int = 5) -> str:
 		"""
@@ -172,6 +199,7 @@ class RAGStore:
 						)
 						# dedup
 						if self._ids_absent([ch_id])[0]:
+							# add to chroma
 							self.collection.add(
 								documents=[caption.strip()],
 								embeddings=self.embedder.embed([caption.strip()]),
@@ -179,6 +207,8 @@ class RAGStore:
 								ids=[ch_id],
 							)
 							added_ids.append(ch_id)
+							# add to BM25
+							self.bm25.add([ch_id], [caption.strip()])
 				except Exception as e:
                     # don't fail ingestion on caption hiccups
 					self._debug(f"[WARN] VisionCaptioner failed: {e}")
@@ -204,12 +234,15 @@ class RAGStore:
 			return added_ids
 
 		embeddings = self.embedder.embed(texts_final)
+		# add to chroma
 		self.collection.add(
 			documents=texts_final,
 			embeddings=embeddings,
 			metadatas=metas_final,
 			ids=ids_to_add,
 		)
+		# add to BM25
+		self.bm25.add(ids_to_add, texts_final)
 		added_ids.extend(ids_to_add)
 		return added_ids
 
@@ -302,6 +335,20 @@ class RAGStore:
 		if not p.is_file():
 			raise IsADirectoryError(f"Not a file: {file_path}")
 		return str(p.resolve())
+
+	def _sort_flag_paths(self, file_paths: list[str]) -> List[dir]:
+		sorted_and_flaged = []
+		images = []
+		docs = []
+		for fp in file_paths:
+			ext = Path(fp).suffix.lower()
+			if ext in self._image_exts:
+				images.append((fp, True))
+			else:
+				docs.append((fp, False))
+
+		return images + docs
+
 
 	def _ids_absent(self, ids: List[str]) -> List[bool]:
 		"""

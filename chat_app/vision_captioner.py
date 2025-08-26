@@ -1,5 +1,5 @@
-import os
-import torch
+# chat_app/vision_captioner.py
+import os, gc, torch, contextlib
 from PIL import Image, ImageOps
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 
@@ -22,9 +22,7 @@ class VisionCaptioner:
 			device_map=device_map,
 			low_cpu_mem_usage=True,
 		)
-
-		# Fallback single-device hint for token tensors passed to generate(...)
-		self._device = "cuda" if torch.cuda.is_available() else "cpu"
+		self.model.eval()
 
 	def _prepare_image(self, img: Image.Image, max_side: int = 1536) -> Image.Image:
 		# Normalize orientation and color; guard giant images to avoid int overflows
@@ -49,7 +47,6 @@ class VisionCaptioner:
 		img_rgb = self._prepare_image(img, max_side=max_side)
 
 		instruction = prompt or "Provide a brief, faithful caption of this image. Be specific."
-
 		messages = [
 			{
 				"role": "user",
@@ -59,15 +56,11 @@ class VisionCaptioner:
 				],
 			}
 		]
-
 		chat = self.processor.apply_chat_template(messages, add_generation_prompt=True)
 
 		def _encode(img_for_encoder: Image.Image):
-			enc = self.processor(images=img_for_encoder, text=chat, return_tensors="pt")
-			# tests may mock .to(...); be permissive
-			if hasattr(enc, "to"):
-				return enc.to(self._device)
-			return enc
+			# Let Accelerate/hf hooks place tensors; don't force .to(device)
+			return self.processor(images=img_for_encoder, text=chat, return_tensors="pt")
 
 		use_max_new = int(max_new_tokens) if max_new_tokens is not None else self.max_new_tokens
 
@@ -97,7 +90,84 @@ class VisionCaptioner:
 			idx = lower.rfind(marker)
 			text = text[idx + len(marker):]
 
+		# Explicitly drop large temporary tensors before returning
+		with contextlib.suppress(Exception):
+			del inputs, gen_ids
+
 		return text.strip()
+
+	def _has_accelerate_hooks(self) -> bool:
+		m = getattr(self, "model", None)
+		return m is not None and (
+			hasattr(m, "hf_device_map")
+			or hasattr(m, "is_loaded_in_8bit")
+			or hasattr(m, "is_loaded_in_4bit")
+		)
+
+	def unload(self, *, clear_hf_cache: bool = False) -> None:
+		"""
+		Free VLM memory safely. Avoid .to('cpu') when Accelerate/quantization hooks are present.
+		Optionally clear the local Hugging Face cache if ``clear_hf_cache=True``.
+		"""
+		# 1) Try to move off accelerator only if it's a plain torch model.
+		if getattr(self, "model", None) is not None and not self._has_accelerate_hooks():
+			with contextlib.suppress(Exception):
+				self.model.to("cpu")
+
+		# 2) Break internal references on the processor to help GC
+		proc = getattr(self, "processor", None)
+		if proc is not None:
+			with contextlib.suppress(Exception):
+				if hasattr(proc, "image_processor"):
+					proc.image_processor = None
+			with contextlib.suppress(Exception):
+				if hasattr(proc, "tokenizer"):
+					proc.tokenizer = None
+
+		# 3) Drop strong refs
+
+		with contextlib.suppress(Exception):
+			_force_model_to_cpu(self.model)
+		del self.model
+		self.model = None
+		gc.collect()
+		if torch.cuda.is_available():
+			torch.cuda.synchronize()
+			torch.cuda.empty_cache()
+			torch.cuda.ipc_collect()
+			torch.cuda.reset_peak_memory_stats()
+			
+		if hasattr(torch, "mps") and torch.backends.mps.is_available():  # Apple Silicon
+			with contextlib.suppress(Exception):
+				torch.mps.empty_cache()
+
+		# 5) Optional: clear local HF cache (disk), not required for RAM/VRAM
+		if clear_hf_cache:
+			with contextlib.suppress(Exception):
+				from huggingface_hub import scan_cache_dir, delete_cache_entries
+				info = scan_cache_dir()
+				delete_cache_entries(info.references())
+
+	def _force_model_to_cpu(m):
+		for p in m.parameters(recurse=True):
+			if hasattr(p, "data") and p.device.type == "cuda":
+				p.data = p.data.cpu()
+		for b in m.buffers(recurse=True):
+			if hasattr(b, "data") and b.device.type == "cuda":
+				b.data = b.data.cpu()
+
+
+	def __enter__(self):
+		return self
+
+	def __del__(self):
+		# Ensure resources are released if the object falls out of scope
+		with contextlib.suppress(Exception):
+			self.unload()
+
+	def __exit__(self, exc_type, exc, tb):
+		self.unload()
+		return False
 
 
 __all__ = ["VisionCaptioner"]

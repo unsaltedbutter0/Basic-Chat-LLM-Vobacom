@@ -51,6 +51,15 @@ class Scanner:
 		root = Path(folder_path).resolve()
 		if not root.exists():
 			raise FileNotFoundError(f"Folder not found: {folder_path}")
+		if root.is_file():
+			parent = root.parent
+			if not include_hidden and root.name.startswith("."):
+				return []
+			if root.is_symlink() and not self.follow_symlinks:
+				return []
+			if root.suffix.lower() not in self.SUPPORTED_EXTENSIONS:
+				return []
+			return [str(root)]
 		if not root.is_dir():
 			raise NotADirectoryError(f"Not a directory: {folder_path}")
 

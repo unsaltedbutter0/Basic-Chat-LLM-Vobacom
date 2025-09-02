@@ -2,18 +2,25 @@
 import logging
 from flask import Flask, render_template, request, jsonify
 from user_agents import parse
+from typing import Optional
 from .llm_handler import LLMHandler
 from .rag_store import RAGStore
 from .rag_retriever import RAGRetriever
 from .scanner import Scanner
 from .guardrails import Guardrails
 from .disk_cache import DiskCache
+from .settings import load_settings
 
 logger = logging.getLogger(__name__)
 
 
 class ChatApp:
-	def __init__(self, model_id):
+	def __init__(self, model_id: Optional[str] = None):
+		cfg = load_settings()
+		if not model_id:
+			model_id = cfg.model.model_id
+		self.max_context = cfg.app.max_context
+
 		if not logging.getLogger().hasHandlers():
 			logging.basicConfig(level=logging.INFO)
 		self.app = Flask(__name__)
@@ -22,7 +29,7 @@ class ChatApp:
 		self.rag = RAGRetriever(self.store)
 		self.scanner = Scanner()
 		self.guard = Guardrails()
-		self.cache = DiskCache("cache")
+		self.cache = DiskCache(type="text")
 		logger.info("ChatApp initialized with model %s", model_id)
 
 		self.app.add_url_rule('/', view_func=self.index, methods=['GET'])
@@ -47,7 +54,7 @@ class ChatApp:
 		try:
 			user_message = request.json['message']
 			logger.info("Chat message received: %s", user_message)
-			key = self._cache_key(user_message, k=3)
+			key = self._cache_key(user_message, k=self.max_context)
 			cached = self.cache.get(key)
 			if cached:
 				processed_response = cached
@@ -73,11 +80,11 @@ class ChatApp:
 			processed_response = None
 			user_message = request.json['message']
 			logger.info("RAG chat message received: %s", user_message)
-			key = self._cache_key(user_message, k=3)
+			key = self._cache_key(user_message, k=self.max_context)
 
 			rec = self.cache.get(key, get_extra=True)
 			cached, cache_meta = rec if rec else (None, None)			
-			messages, sources, fmt_ids_new = self.rag.build_messages_hybrid(user_message, top_k=3)
+			messages, sources, fmt_ids_new = self.rag.build_messages_hybrid(user_message)
 			if cached and cache_meta and cache_meta["fmt_ids"]:
 				fmt_ids_old = cache_meta["fmt_ids"]
 				if self._is_similar_jaccard(fmt_ids_new, fmt_ids_old):

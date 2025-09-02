@@ -1,6 +1,4 @@
 # settings.py
-# Tabs for indentation only.
-
 from __future__ import annotations
 
 import os
@@ -14,7 +12,7 @@ except ModuleNotFoundError:
 	import tomli as toml  # type: ignore
 
 try:
-	import tomli_w  # tiny writer; if unavailable we fall back to JSON
+	import tomli_w  
 except Exception:
 	tomli_w = None  # type: ignore
 
@@ -25,30 +23,38 @@ _ENV_PREFIX = "VOBA"  # change if you like
 
 @dataclass
 class ModelCfg:
-	provider: str = "openai"
-	model_name: str = "gpt-4o-mini"
+	model_id: str = "NousResearch/Hermes-3-Llama-3.1-8B"
+	provider: str = "NousResearch"
+	model_name: str = "Hermes-3-Llama-3.1-8B"
 
 @dataclass
 class EmbeddingsCfg:
-	provider: str = "openai"
-	dim: int = 1536
+	model_id: str = "sentence-transformers/all-MiniLM-L6-v2"
+	provider: str = "sentence-transformers"
+	model_name: str = "all-MiniLM-L6-v2"
 
 @dataclass
 class VectorStoreCfg:
-	backend: str = "chroma"
-	persist_dir: str = "./chroma_store"
-	collection: str = "vobachat"
+	persist_dir: str = "./chroma_db"
+	collection: str = "documents"
 
 @dataclass
 class PathsCfg:
-	data_dir: str = "./data"
-	temp_dir: str = "./tmp"
+	cache_dir: str = "cache"
+	secret_dirs: list[str] = ["private", "private", "secrets", "secrets", ".ssh", ".ssh"]
+	data_dirs: list[str] = ["./data"]
 
 @dataclass
 class AppCfg:
 	env: str = "dev"
 	port: int = 8000
 	host: str = "127.0.0.1"
+	max_context: int = 3
+
+@dataclass
+class GuardrailsCfg:
+	BLOCK_PRIVATE: bool = False
+	ALLOW_ONLY_TECH: bool = False
 
 @dataclass
 class Settings:
@@ -57,6 +63,7 @@ class Settings:
 	model: ModelCfg = ModelCfg()
 	embeddings: EmbeddingsCfg = EmbeddingsCfg()
 	vectorstore: VectorStoreCfg = VectorStoreCfg()
+	guardrails: GuardrailsCfg = GuardrailsCfg()
 
 	def to_dict(self) -> Dict[str, Any]:
 		return {
@@ -65,29 +72,8 @@ class Settings:
 			"model": asdict(self.model),
 			"embeddings": asdict(self.embeddings),
 			"vectorstore": asdict(self.vectorstore),
+			"guardrails": asdict(self.guardrails)
 		}
-
-
-def _env_override(d: Dict[str, Any]) -> Dict[str, Any]:
-	"""
-	Allow env overrides like:
-	VOBA_APP_PORT=9001
-	VOBA_VECTORSTORE_PERSIST_DIR=/mnt/chroma
-	"""
-	out = json.loads(json.dumps(d))  # deep copy
-	for section, section_dict in d.items():
-		for key, val in section_dict.items():
-			env_key = f"{_ENV_PREFIX}_{section}_{key}".upper()
-			if env_key in os.environ:
-				raw = os.environ[env_key]
-				if isinstance(val, bool):
-					out[section][key] = raw.lower() in ("1", "true", "yes", "on")
-				elif isinstance(val, int):
-					out[section][key] = int(raw)
-				else:
-					out[section][key] = raw
-	return out
-
 
 def _dict_to_settings(d: Dict[str, Any]) -> Settings:
 	# minimal "validation": ensure sections/keys exist; fill defaults if missing
@@ -136,3 +122,24 @@ def save_settings(s: Settings, path: Optional[str] = None) -> None:
 		json_path = os.path.splitext(path)[0] + ".json"
 		with open(json_path, "w", encoding="utf-8") as f:
 			json.dump(data, f, indent=2)
+
+# for later maybe
+def _env_override(d: Dict[str, Any]) -> Dict[str, Any]:
+	"""
+	Allow env overrides like:
+	VOBA_APP_PORT=9001
+	VOBA_VECTORSTORE_PERSIST_DIR=/mnt/chroma
+	"""
+	out = json.loads(json.dumps(d))  # deep copy
+	for section, section_dict in d.items():
+		for key, val in section_dict.items():
+			env_key = f"{_ENV_PREFIX}_{section}_{key}".upper()
+			if env_key in os.environ:
+				raw = os.environ[env_key]
+				if isinstance(val, bool):
+					out[section][key] = raw.lower() in ("1", "true", "yes", "on")
+				elif isinstance(val, int):
+					out[section][key] = int(raw)
+				else:
+					out[section][key] = raw
+	return out

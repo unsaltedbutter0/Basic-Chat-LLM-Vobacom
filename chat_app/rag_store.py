@@ -6,7 +6,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Tuple, Optional
 
 from chromadb import PersistentClient
 from docling.chunking import HybridChunker
@@ -20,6 +20,7 @@ from PIL import Image
 
 from .embedder import Embedder
 from .sparse_bm25 import BM25Index
+from .settings import load_settings
 
 
 class RAGStore:
@@ -34,12 +35,16 @@ class RAGStore:
 
 	def __init__(
 		self,
-		chroma_dir: str = "chroma_db",
-		tesseract_dir: str | None = None,		# e.g. r"C:\Program Files\Tesseract-OCR"
+		chroma_dir: Optional[str] = None,
+		tesseract_dir: Optional[str] = None,		# e.g. r"C:\Program Files\Tesseract-OCR"
 	):
+		cfg = load_settings
+		if not chroma_dir:
+			chroma_dir = cfg.vectorstore.persist_dir
+
 		# --- storage
 		self.client = PersistentClient(path=chroma_dir)
-		self.collection = self.client.get_or_create_collection(name="rag_chunks")
+		self.collection = self.client.get_or_create_collection(name=cfg.vectorstore.collection)
 
 		# --- NLP
 		self.embedder = Embedder()

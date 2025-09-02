@@ -1,8 +1,13 @@
 from transformers import AutoTokenizer, AutoModel
+from typing import Optional
 import torch
+from .settings import load_settings
 
 class Embedder():
-	def __init__(self, model_id="sentence-transformers/all-MiniLM-L6-v2"):
+	def __init__(self, model_id: Optional[str] = None):
+		if not model_id:
+			cfg = load_settings()
+			model_id = cfg.embeddings.model_id
 		self.tokenizer = AutoTokenizer.from_pretrained(model_id)
 		self.model = AutoModel.from_pretrained(model_id).eval()
 		self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

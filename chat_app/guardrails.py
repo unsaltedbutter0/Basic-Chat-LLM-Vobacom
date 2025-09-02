@@ -1,6 +1,7 @@
 # chat_app/guardrails.py
 from typing import List, Dict, Tuple, Optional
-import math os, re
+import math, os, re
+from .settings import load_settings
 
 SUSPICIOUS_PATTERNS = (
     "ignore previous instructions",
@@ -24,9 +25,11 @@ _TECH_SCI_KEYWORDS = (
 	"embeddings","vector","cosine","semantic","retrieval","index","chroma","docling","ocr","tesseract"
 )
 
-ALLOW_ONLY_TECH	= os.getenv("ALLOW_ONLY_TECH", "0") == "1"
-BLOCK_PRIVATE	= os.getenv("BLOCK_PRIVATE", "0") == "1"
-_PRIVATE_PATTERNS = tuple(s.strip().lower() for s in os.getenv("PRIVATE_PATH_PATTERNS", "").split(",") if s.strip())
+cfg = load_settings()
+
+ALLOW_ONLY_TECH	= cfg.guardrails.ALLOW_ONLY_TECH
+BLOCK_PRIVATE	= cfg.guardrails.BLOCK_PRIVATE
+_SECRET_DIRS = cfg.paths.secret_dirs
 
 _SECRET_REGEXES = (
 	re.compile(r"\b[A-Za-z0-9_]{16,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}"),	# jwt-ish
@@ -38,7 +41,6 @@ _PII_REGEXES = (
 	re.compile(r"\b[\w\.-]+@[\w\.-]+\.\w+\b"),										# emails
 	re.compile(r"\b\+?\d{1,3}[-\s]?\(?\d{2,4}\)?[-\s]?\d{3,4}[-\s]?\d{3,4}\b"),		# phones
 )
-_SECRET_DIRS = ("private", "private", "secrets", "secrets", ".ssh", ".ssh")
 
 class Guardrails():
 	"""Simple and lightweight guardrails with relevant chunk selection"""
@@ -102,7 +104,7 @@ class Guardrails():
 		if not filter:
 			return text
 		redacted = text
-		if _text_has_private_bits(redacted):
+		if self._text_has_private_bits(redacted):
 			redacted = re.sub(_SECRET_REGEXES[0], "[REDACTED-JWT]", redacted)
 			for rx in _SECRET_REGEXES[1:]:
 				redacted = rx.sub("[REDACTED-SECRET]", redacted)

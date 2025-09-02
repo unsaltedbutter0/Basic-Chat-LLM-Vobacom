@@ -2,12 +2,14 @@
 import json, os, time, tempfile
 from hashlib import sha1
 from pathlib import Path
+from typing import Optional
+from .settings import load_settings
 
 class DiskCache():
 	"""
 	Object for caching responses to save resources
 	"""
-	def __init__(self, cache_folder_path: str = "cache", type: str = "text", max_size_Gb: int = 2):
+	def __init__(self, type: str = "text", cache_folder_path: Optional[str] = None, max_size_Gb: int = 2):
 		match type:
 			case "text":
 				self.ext = ".txt"
@@ -17,6 +19,10 @@ class DiskCache():
 				self.ext = ".npy"
 			case _:
 				raise Exception("TypeError: provided type not supported.\nTry: [text, json, npy]")
+
+		if not cache_folder_path:
+			cfg = load_settings()
+			cache_folder_path = cfg.paths.cache_dir
 
 		self.root = Path(cache_folder_path)
 		self.root.mkdir(parents=True, exist_ok=True)

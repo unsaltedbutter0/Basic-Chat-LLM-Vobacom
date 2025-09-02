@@ -1,7 +1,9 @@
 # rag_retriever.py
 import logging
+from typing import Optional
 from .rag_store import RAGStore
 from .guardrails import Guardrails
+from .settings import load_settings
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +12,9 @@ def _rrf(rank, k=60):
 
 class RAGRetriever:
 	def __init__(self, store: RAGStore):
+		cfg = load_settings()
+		self.max_context = cfg.app.max_context
+
 		self.store = store
 		self.gr = Guardrails(dense_metric="l2", alpha=0.5)
 
@@ -67,7 +72,10 @@ class RAGRetriever:
 			"normalized_scores": [[v for v in top_norm]],
 		}
 
-	def build_messages_hybrid(self, question: str, top_k: int = 5):
+	def build_messages_hybrid(self, question: str, top_k: Optional[int] = None):
+		if not top_k:
+			top_k = self.max_context
+
 		label_war = "Warning! This source has a poor score acording to search engine!"
 		results = self.hybrid_query(question, n_dense=20, n_sparse=50, top_k=top_k)
 		texts_nested = results.get("documents", [[]])

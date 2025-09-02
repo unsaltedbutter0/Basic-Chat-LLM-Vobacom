@@ -11,6 +11,9 @@ env/
 # PyTorch cache
 .offload/
 
+# cache
+cache/
+
 # Logs
 *.log
 conversation_logs/

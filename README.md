@@ -3,15 +3,35 @@
 - [x] implement new prompt generation
 	- [x] web-side formating
 	
-- [ ] Hybrid Retriver
-- [ ] Reranker
-- [ ] Query Rewriting
+- [x] Hybrid Retriver
+- [x] normalized scores
+- [~] results selector (distance and score threshold)
 - [ ] Guardrails
-- [ ] cache
-
+	- [x] warning when weak sources
+	- [x] anti prompt-injection from inside the sources 
+	- [x] infomation when no sources found
+	- [x] chit-chat prevention
+	- [x] respect private information
+- [x] cache
+	- [x] purging
+	- [x] chat's responses
+	- [x] evicion when changed data
+	- [ ] embbedings
+	- [ ] maybe scanner
+	- [ ] maybe captioning
+	- [ ] 
 - [x] GUI catalog selector
 	- [ ] make it into seperate page. As setup maybe?
+	- [ ] get_polices method
 - [ ] setup.py
+	- [ ] private paths/folders; maybe as restricted
+	- [ ] llm to use
+	- [ ] folder/folders to scan
+	- [ ] 
+	- [ ] 
 - [ ] requirements.txt
+
+- [ ] Query Rewriting
+- [ ] Reranker
 - [x] VLM impementation
 	- [ ] remove VLM from memory when not in use

@@ -5,6 +5,7 @@ import os, torch, json
 
 class LLMHandler():
 	def __init__(self, model_id="NousResearch/Hermes-3-Llama-3.1-8B"):
+		self.model_id = model_id
 		self.tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 		bnb_cfg = BitsAndBytesConfig(

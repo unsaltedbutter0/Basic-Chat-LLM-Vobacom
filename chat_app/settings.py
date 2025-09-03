@@ -72,7 +72,7 @@ class Settings:
 			"model": asdict(self.model),
 			"embeddings": asdict(self.embeddings),
 			"vectorstore": asdict(self.vectorstore),
-			"guardrails": asdict(self.guardrails)
+			"guardrails": asdict(self.guardrails),
 		}
 
 def _dict_to_settings(d: Dict[str, Any]) -> Settings:
@@ -88,6 +88,7 @@ def _dict_to_settings(d: Dict[str, Any]) -> Settings:
 		model=ModelCfg(**get("model", asdict(ModelCfg()))),
 		embeddings=EmbeddingsCfg(**get("embeddings", asdict(EmbeddingsCfg()))),
 		vectorstore=VectorStoreCfg(**get("vectorstore", asdict(VectorStoreCfg()))),
+		guardrails=GuardrailsCfg(**get("guardrails", asdict(GuardrailsCfg())))
 	)
 
 
@@ -108,7 +109,9 @@ def load_settings(path: Optional[str] = None) -> Settings:
 	return _dict_to_settings(raw)
 
 
-def save_settings(s: Settings, path: Optional[str] = None) -> None:
+def save_settings(s: Settings|dict, path: Optional[str] = None) -> None:
+	if isinstance(s, dict):
+		s = _dict_to_settings(s)
 	if path is None:
 		path = os.environ.get(f"{_ENV_PREFIX}_CONFIG") or _DEFAULT_PATH
 	os.makedirs(os.path.dirname(path), exist_ok=True)

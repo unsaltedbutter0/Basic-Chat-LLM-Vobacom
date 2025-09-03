@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Settings Editor</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#121a33; --muted:#9aa3b2; --text:#eaf0ff; --accent:#6aa8ff; --ok:#20c997; --err:#ff6b6b; }
+    * { box-sizing: border-box; }
+    body { margin:0; font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color:var(--text); background:linear-gradient(180deg,#0b1020,#0d1429); }
+    header { padding: 20px 24px; border-bottom: 1px solid #1f2a4a; display:flex; align-items:center; gap:16px; }
+    header h1 { font-size: 18px; margin:0; }
+    main { display:grid; grid-template-columns: 1.1fr 0.9fr; gap: 20px; padding: 20px; max-width: 1200px; margin: 0 auto; }
+    .card { background: var(--panel); border:1px solid #172140; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .card header { border:0; padding:16px 16px 0 16px; }
+    .card .content { padding: 16px; }
+    fieldset { border: 1px dashed #2b3a67; padding: 16px; border-radius: 12px; margin: 0 0 16px 0; }
+    legend { padding: 0 8px; color: var(--accent); font-weight: 600; letter-spacing:.2px; }
+    label { display:block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    input[type="text"], input[type="number"], textarea { width: 100%; padding: 10px 12px; border-radius: 10px; background: #0f1630; color: var(--text); border: 1px solid #1e2a4d; outline: none; }
+    input[type="number"] { -moz-appearance: textfield; }
+    input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    textarea { min-height: 72px; resize: vertical; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .help { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:10px; margin-top: 10px; }
+    button { appearance: none; border:1px solid #2a3a6b; background: #122048; color: var(--text); padding: 10px 14px; border-radius: 12px; cursor:pointer; font-weight:600; }
+    button.primary { background: #1b3b7a; border-color:#29529e; }
+    button.ok { background:#0e3d32; border-color:#157a66; }
+    button.warn { background:#412121; border-color:#7a2929; }
+    pre { margin:0; padding:12px; background:#0b132e; border-radius: 10px; border:1px solid #1a2549; overflow:auto; max-height: 60vh; }
+    .status { margin-top:10px; font-size: 13px; }
+    .status.ok { color: var(--ok); }
+    .status.err { color: var(--err); }
+    @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 4h14a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2H7.6L5 21V6a2 2 0 0 1 2-2Z" stroke="#6aa8ff" stroke-width="1.6"/></svg>
+    <h1>Settings Editor</h1>
+  </header>
+
+  <main>
+    <section class="card">
+      <header><h2>Form</h2></header>
+      <div class="content">
+        <form id="settingsForm" onsubmit="event.preventDefault(); buildAndPreview();">
+          <fieldset>
+            <legend>Vector Store</legend>
+            <div class="row">
+              <div>
+                <label for="persist_dir">persist_dir</label>
+                <input id="persist_dir" name="persist_dir" type="text" placeholder="./chroma_db" />
+                <div class="help">Directory for Chroma persistence.</div>
+              </div>
+              <div>
+                <label for="collection">collection</label>
+                <input id="collection" name="collection" type="text" placeholder="documents" />
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Paths</legend>
+            <div class="row">
+              <div>
+                <label for="cache_dir">cache_dir</label>
+                <input id="cache_dir" name="cache_dir" type="text" placeholder="cache" />
+              </div>
+              <div>
+                <label for="secret_dirs">secret_dirs (comma-separated)</label>
+                <input id="secret_dirs" name="secret_dirs" type="text" placeholder="private, secrets, .ssh" />
+              </div>
+            </div>
+            <div style="margin-top:12px;">
+              <label for="data_dirs">data_dirs (comma-separated)</label>
+              <input id="data_dirs" name="data_dirs" type="text" placeholder="./data" />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>App</legend>
+            <div class="row">
+              <div>
+                <label for="port">port</label>
+                <input id="port" name="port" type="number" min="1" max="65535" placeholder="8000" />
+              </div>
+              <div>
+                <label for="host">host</label>
+                <input id="host" name="host" type="text" placeholder="127.0.0.1" />
+              </div>
+            </div>
+            <div style="margin-top:12px;">
+              <label for="max_context">max_context</label>
+              <input id="max_context" name="max_context" type="number" min="1" step="1" placeholder="3" />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Guardrails</legend>
+            <div class="row">
+              <label style="display:flex; align-items:center; gap:8px;">
+                <input id="BLOCK_PRIVATE" type="checkbox" /> BLOCK_PRIVATE
+              </label>
+              <label style="display:flex; align-items:center; gap:8px;">
+                <input id="ALLOW_ONLY_TECH" type="checkbox" /> ALLOW_ONLY_TECH
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="toolbar">
+            <button class="primary" type="button" onclick="buildAndPreview()">Build JSON</button>
+            <button class="ok" type="button" onclick="postSettings()">POST to /api/settings</button>
+            <button type="button" onclick="downloadJSON()">Download JSON</button>
+            <button class="warn" type="button" onclick="loadFromPrompt()">Load from pasted JSON</button>
+          </div>
+          <div class="help">Lists accept comma-separated values. Only the specified fields are included; your backend can merge with existing settings.</div>
+        </form>
+      </div>
+    </section>
+
+    <section class="card">
+      <header><h2>Preview</h2></header>
+      <div class="content">
+        <pre id="preview">{}</pre>
+        <div id="status" class="status" aria-live="polite"></div>
+        <div style="margin-top:12px;">
+          <label for="paste" class="help">Paste existing settings JSON to preload (optional)</label>
+          <textarea id="paste" placeholder='{"app":{"port":8000,"host":"127.0.0.1","max_context":3}, ...}'></textarea>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function csvToArray(s) {
+      return (s || "")
+      .split(",")
+      .map(x => x.trim())
+      .filter(Boolean);
+    }
+
+    function sanitizePort(n) {
+      n = Number(n);
+      if (!Number.isFinite(n)) return 8000;
+      return Math.min(65535, Math.max(1, Math.floor(n)));
+    }
+
+    function sanitizeMaxContext(n) {
+      n = Number(n);
+      if (!Number.isFinite(n) || n < 1) return 3;
+      return Math.floor(n);
+    }
+
+    function buildPayload() {
+      const payload = {
+        vectorstore: {
+          persist_dir: $("persist_dir").value.trim() || "./chroma_db",
+          collection: $("collection").value.trim() || "documents",
+        },
+        paths: {
+          cache_dir: $("cache_dir").value.trim() || "cache",
+          secret_dirs: csvToArray($("secret_dirs").value) ,
+          data_dirs: csvToArray($("data_dirs").value) || ["./data"],
+        },
+        app: {
+          port: sanitizePort($("port").value || 8000),
+          host: $("host").value.trim() || "127.0.0.1",
+          max_context: sanitizeMaxContext($("max_context").value || 3),
+        },
+        guardrails: {
+          BLOCK_PRIVATE: $("BLOCK_PRIVATE").checked,
+          ALLOW_ONLY_TECH: $("ALLOW_ONLY_TECH").checked,
+        },
+      };
+
+      // Ensure arrays exist even if empty
+      if (!Array.isArray(payload.paths.secret_dirs)) payload.paths.secret_dirs = [];
+      if (!Array.isArray(payload.paths.data_dirs)) payload.paths.data_dirs = [];
+
+      return payload;
+    }
+
+    function buildAndPreview() {
+      const payload = buildPayload();
+      $("preview").textContent = JSON.stringify(payload, null, 2);
+      setStatus("");
+      return payload;
+    }
+
+    async function postSettings() {
+      const payload = buildAndPreview();
+      try {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        const text = await res.text();
+        setStatus(`Saved ✔ — server responded: ${text.slice(0, 200)}`,'ok');
+      } catch (err) {
+        setStatus(`Save failed ✖ — ${err.message}`,'err');
+      }
+    }
+
+    function downloadJSON() {
+      const payload = buildAndPreview();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "settings.partial.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function loadFromPrompt() {
+      try {
+        const txt = $("paste").value.trim();
+        if (!txt) return;
+        const obj = JSON.parse(txt);
+        // Preload only known fields
+        if (obj.vectorstore) {
+          if (obj.vectorstore.persist_dir) $("persist_dir").value = obj.vectorstore.persist_dir;
+          if (obj.vectorstore.collection) $("collection").value = obj.vectorstore.collection;
+        }
+        if (obj.paths) {
+          if (obj.paths.cache_dir) $("cache_dir").value = obj.paths.cache_dir;
+          if (obj.paths.secret_dirs) $("secret_dirs").value = (obj.paths.secret_dirs || []).join(", ");
+          if (obj.paths.data_dirs) $("data_dirs").value = (obj.paths.data_dirs || []).join(", ");
+        }
+        if (obj.app) {
+          if (obj.app.port != null) $("port").value = obj.app.port;
+          if (obj.app.host) $("host").value = obj.app.host;
+          if (obj.app.max_context != null) $("max_context").value = obj.app.max_context;
+        }
+        if (obj.guardrails) {
+          if (typeof obj.guardrails.BLOCK_PRIVATE === 'boolean') $("BLOCK_PRIVATE").checked = obj.guardrails.BLOCK_PRIVATE;
+          if (typeof obj.guardrails.ALLOW_ONLY_TECH === 'boolean') $("ALLOW_ONLY_TECH").checked = obj.guardrails.ALLOW_ONLY_TECH;
+        }
+        buildAndPreview();
+      } catch (e) {
+        setStatus("Could not parse pasted JSON", 'err');
+      }
+    }
+
+    function setStatus(msg, cls) {
+      const el = $("status");
+      el.textContent = msg || "";
+      el.className = `status ${cls || ''}`.trim();
+    }
+
+    // Initial defaults matching Python dataclasses
+    (function preloadDefaults(){
+      $("persist_dir").value = "./chroma_db";
+      $("collection").value = "documents";
+      $("cache_dir").value = "cache";
+      $("secret_dirs").value = "private, secrets, .ssh"; // de-duped view
+      $("data_dirs").value = "./data";
+      $("port").value = 8000;
+      $("host").value = "127.0.0.1";
+      $("max_context").value = 3;
+      $("BLOCK_PRIVATE").checked = false;
+      $("ALLOW_ONLY_TECH").checked = false;
+      buildAndPreview();
+    })();
+    
+    async function preloadFromServer(){
+      try{
+        const r = await fetch("/api/settings");
+        if(!r.ok) return;
+        const obj = await r.json();
+        $("paste").value = JSON.stringify(obj); // reuse existing loader
+        loadFromPrompt();
+      }catch{}
+    }
+    preloadFromServer();
+  </script>
+</body>
+</html>

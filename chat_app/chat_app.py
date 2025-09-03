@@ -9,7 +9,7 @@ from .rag_retriever import RAGRetriever
 from .scanner import Scanner
 from .guardrails import Guardrails
 from .disk_cache import DiskCache
-from .settings import load_settings
+from .settings import load_settings, save_settings
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,9 @@ class ChatApp:
 		self.app.add_url_rule('/chat', view_func=self.chat, methods=['POST'])
 		self.app.add_url_rule('/rag', view_func=self.rag_chat, methods=['POST'])
 		self.app.add_url_rule('/ingest', view_func=self.ingest_folder, methods=['POST'])
+		self.app.add_url_rule('/settings', view_func=self.settings, methods=['GET'])
+		self.app.add_url_rule('/api/settings', view_func=self.get_settings_api, methods=['GET'])
+		self.app.add_url_rule('/api/settings', view_func=self.post_settings_api, methods=['POST'])
 
 	def index(self):
 		try:
@@ -95,7 +98,7 @@ class ChatApp:
 				# Stateless RAG turn: reset history so prior chit-chat doesn't leak
 				llm_response = self.llm.chat_messages(messages, reset=True)
 				processed_response = self.guard.post_processing(llm_response) 
-				self.cache.add(key, llm_response, extra_meta={"fmt_ids": fmt_ids_new})
+				self.cache.add(key, processed_response, extra_meta={"fmt_ids": fmt_ids_new})
 
 			return jsonify({
 				'message': {
@@ -109,6 +112,41 @@ class ChatApp:
 			}), 200
 		except Exception as e:
 			logger.exception("Error in rag route: %s", e)
+			return jsonify({'error': str(e)})
+
+	def settings(self):
+		try:
+			user_agent_string = request.headers.get('User-Agent', '')
+			logger.info("Serving settings page for user agent: %s", user_agent_string)
+			return render_template("settings_editor.html")
+		except Exception as e:
+			logger.exception("Error in settings route: %s", e)
+			return jsonify({'error': str(e)})
+
+	def get_settings_api(self):
+		try:
+			logger.info("Loading and sending current settings")			
+			return jsonify(load_settings().to_dict())
+		except Exception as e:
+			logger.exception("Error in get_settings_api route: %s", e)
+			return jsonify({'error': str(e)})
+
+	def post_settings_api(self):
+		try:
+			data = request.get_json(force=True) or {}
+			logger.info(f"Saving new settings: {data}")
+			cur = load_settings().to_dict()
+		    merged = {
+		        **cur, **data,
+		        "app": {**cur.get("app", {}), **data.get("app", {})},
+		        "paths": {**cur.get("paths", {}), **data.get("paths", {})},
+		        "vectorstore": {**cur.get("vectorstore", {}), **data.get("vectorstore", {})},
+		        "guardrails": {**cur.get("guardrails", {}), **data.get("guardrails", {})},
+		    }
+		    save_settings(merged)
+		    return jsonify({"ok": True}), 200
+		except Exception as e:
+			logger.exception("Error in post_settings_api route: %s", e)
 			return jsonify({'error': str(e)})
 
 	def ingest_folder(self):
@@ -138,9 +176,10 @@ class ChatApp:
 			return True
 		return False
 
-	def _cache_key(self, question: str, k: int, model_id: str | None = None, prompt_ver: str = "v1") -> str:
+	def _cache_key(self, question: str, k: Optional[int] = None, model_id: Optional[str] = None, prompt_ver: str = "v1") -> str:
+		k = k if k else load_settings().app.max_context
 		model_id = model_id or getattr(self.llm, "model_id", "unknown")
-		return f"{prompt_ver}|{model_id}|k{k}|{qn}"
+		return f"{prompt_ver}|{model_id}|k{k}|{question}"
 
 if __name__ == '__main__':
 	chat_app = ChatApp("NousResearch/Hermes-3-Llama-3.1-8B")

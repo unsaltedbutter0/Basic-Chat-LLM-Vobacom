@@ -2,11 +2,13 @@
 - [x] Scanner of files
 - [x] implement new prompt generation
 	- [x] web-side formating
+		- [ ] hyperlinks
+		- [ ] images
 	
 - [x] Hybrid Retriver
 - [x] normalized scores
 - [~] results selector (distance and score threshold)
-- [ ] Guardrails
+- [x] Guardrails
 	- [x] warning when weak sources
 	- [x] anti prompt-injection from inside the sources 
 	- [x] infomation when no sources found
@@ -23,12 +25,7 @@
 - [x] GUI catalog selector
 	- [ ] make it into seperate page. As setup maybe?
 	- [ ] get_polices method
-- [ ] setup.py
-	- [ ] private paths/folders; maybe as restricted
-	- [ ] llm to use
-	- [ ] folder/folders to scan
-	- [ ] 
-	- [ ] 
+- [x] settings.py 
 - [ ] requirements.txt
 
 - [ ] Query Rewriting

@@ -22,7 +22,7 @@ class RAGRetriever:
 		logger.info("Hybrid query: %s", query_text)
 
 		# dense
-		dense = self.store.query(query_text, n_results=n_dense, include=("documents","metadatas"))
+		dense = self.store.query(query_text, n_results=n_dense, include=("documents","metadatas","distances"))
 		d_ids = dense.get("ids", [[]])[0] if "ids" in dense else []
 		d_docs = dense.get("documents", [[]])[0]
 		d_meta = dense.get("metadatas", [[]])[0]

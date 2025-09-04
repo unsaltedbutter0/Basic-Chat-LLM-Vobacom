@@ -465,7 +465,8 @@
 			sendButton.disabled = true;
 			showTypingIndicator();
 
-                       const endpoint = '/chat';
+                       const endpointCookie = document.cookie.split('; ').find(row => row.startsWith('chat_endpoint='));
+                       const endpoint = endpointCookie && endpointCookie.split('=')[1] === 'chat' ? '/chat' : '/rag';
 
                        fetch(endpoint, {
 				method: 'POST',

@@ -64,51 +64,10 @@
 			justify-content: flex-end;
 		}
 
-		.mode-toggle {
-			display: flex;
-			align-items: center;
-			gap: 12px;
-			background: rgba(26, 32, 44, 0.2);
-			padding: 8px 16px;
-			border-radius: 20px;
-			font-size: 0.9rem;
-			font-weight: 500;
-		}
-
-		.toggle-switch {
-			position: relative;
-			width: 50px;
-			height: 24px;
-			background: rgba(26, 32, 44, 0.4);
-			border-radius: 12px;
-			cursor: pointer;
-			transition: all 0.3s ease;
-		}
-
-		.toggle-switch.active {
-			background: rgba(16, 185, 129, 0.8);
-		}
-
-		.toggle-slider {
-			position: absolute;
-			top: 2px;
-			left: 2px;
-			width: 20px;
-			height: 20px;
-			background: #1a202c;
-			border-radius: 50%;
-			transition: all 0.3s ease;
-			box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-		}
-
-		.toggle-switch.active .toggle-slider {
-			transform: translateX(26px);
-		}
-
-		.mode-label {
-			font-weight: 600;
-			text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-		}
+               .settings-button {
+                       font-size: 1.5rem;
+                       text-decoration: none;
+               }
 
 		.chat-header h1 {
 			font-size: 1.5rem;
@@ -347,16 +306,10 @@
 			<div class="header-center">
 				<h1>VobaChat</h1>
 			</div>
-                <div class="header-right">
-                        <div class="mode-toggle">
-                                <span class="mode-label" id="modeLabel">LLM</span>
-                                <div class="toggle-switch" id="modeToggle">
-                                        <div class="toggle-slider"></div>
-                                </div>
-                                <span class="mode-label">RAG</span>
-                        </div>
-                </div>
-        </div>
+               <div class="header-right">
+                       <a href="/settings" class="settings-button" aria-label="Settings">⚙️</a>
+               </div>
+       </div>
 
         <div class="chat-input-container">
                 <div class="input-group">
@@ -398,21 +351,7 @@
                 const messageInput = document.getElementById('messageInput');
                 const sendButton = document.getElementById('sendButton');
                 const typingIndicator = document.getElementById('typingIndicator');
-                const modeToggle = document.getElementById('modeToggle');
-                const modeLabel = document.getElementById('modeLabel');
-                const scanButton = document.getElementById('scanButton');
-
-                let isRAGMode = false;
-
-		// Toggle mode functionality
-		modeToggle.addEventListener('click', function() {
-			isRAGMode = !isRAGMode;
-			this.classList.toggle('active', isRAGMode);
-			modeLabel.textContent = isRAGMode ? 'RAG' : 'LLM';
-			
-			// Add visual feedback
-			addMessage(`Switched to ${isRAGMode ? 'RAG' : 'LLM'} mode`, false);
-		});
+               const scanButton = document.getElementById('scanButton');
 
 		// Auto-resize textarea
 		messageInput.addEventListener('input', function() {
@@ -526,11 +465,9 @@
 			sendButton.disabled = true;
 			showTypingIndicator();
 
-			// Choose endpoint based on mode
-			const endpoint = isRAGMode ? '/rag' : '/chat';
+                       const endpoint = '/chat';
 
-			// Send to Flask backend
-			fetch(endpoint, {
+                       fetch(endpoint, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',

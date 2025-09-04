@@ -38,7 +38,7 @@ class RAGStore:
 		chroma_dir: Optional[str] = None,
 		tesseract_dir: Optional[str] = None,		# e.g. r"C:\Program Files\Tesseract-OCR"
 	):
-		cfg = load_settings
+		cfg = load_settings()
 		if not chroma_dir:
 			chroma_dir = cfg.vectorstore.persist_dir
 

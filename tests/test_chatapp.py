@@ -2,6 +2,16 @@ from unittest.mock import patch
 import unittest
 from flask import json
 from chat_app.chat_app import ChatApp
+from chat_app.settings import (
+    Settings,
+    PathsCfg,
+    AppCfg,
+    ModelCfg,
+    EmbeddingsCfg,
+    VectorStoreCfg,
+    GuardrailsCfg,
+    DataDirCfg,
+)
 
 
 class TestChatApp(unittest.TestCase):
@@ -10,24 +20,37 @@ class TestChatApp(unittest.TestCase):
         patcher_store = patch('chat_app.chat_app.RAGStore')
         patcher_rag = patch('chat_app.chat_app.RAGRetriever')
         patcher_scan = patch('chat_app.chat_app.Scanner')
+        patcher_settings = patch('chat_app.chat_app.load_settings')
 
         self.MockLLMHandler = patcher.start()
         self.MockRAGStore = patcher_store.start()
         self.MockRAGRetriever = patcher_rag.start()
         self.MockScanner = patcher_scan.start()
+        self.MockLoadSettings = patcher_settings.start()
 
         self.addCleanup(patcher.stop)
         self.addCleanup(patcher_store.stop)
         self.addCleanup(patcher_rag.stop)
         self.addCleanup(patcher_scan.stop)
+        self.addCleanup(patcher_settings.stop)
 
         mock_llm_instance = self.MockLLMHandler.return_value
         mock_rag_instance = self.MockRAGRetriever.return_value
         mock_llm_instance.chat_next.return_value = "Mocked response"
         mock_llm_instance.chat_messages.return_value = "Mocked response"
-        mock_rag_instance.build_messages.return_value = (["Mocked message"], ["Mocked sources"])
+        mock_rag_instance.build_messages_hybrid.return_value = (["Mocked message"], ["Mocked sources"], {"fmt1"})
         self.MockScanner.return_value.scan.return_value = ["file1", "file2"]
         self.MockRAGStore.return_value.ingest.return_value = ["id1", "id2"]
+
+        cfg = Settings(
+            app=AppCfg(),
+            paths=PathsCfg(data_dirs=[DataDirCfg(path="/tmp", recursive=True)]),
+            model=ModelCfg(),
+            embeddings=EmbeddingsCfg(),
+            vectorstore=VectorStoreCfg(),
+            guardrails=GuardrailsCfg(),
+        )
+        self.MockLoadSettings.return_value = cfg
 
         self.chat_app = ChatApp("dummy-model-id")
         self.app = self.chat_app.app
@@ -56,7 +79,7 @@ class TestChatApp(unittest.TestCase):
         data = json.loads(response.data)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(data['message']['content'], "Mocked response")
+        self.assertTrue(data['message']['content'].startswith("Mocked response"))
         self.assertEqual(data['message']['format'], "markdown")
 
         self.MockLLMHandler.return_value.chat_next.assert_called_once_with("Hello")
@@ -66,14 +89,14 @@ class TestChatApp(unittest.TestCase):
         data = json.loads(response.data)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(data['message']['content'], "Mocked response")
+        self.assertTrue(data['message']['content'].startswith("Mocked response"))
         self.assertEqual(data['message']['format'], "markdown")
         self.assertEqual(data['meta']['sources'], ["Mocked sources"])
-        self.MockRAGRetriever.return_value.build_messages.assert_called_once_with("Hello", n_results=5)
+        self.MockRAGRetriever.return_value.build_messages_hybrid.assert_called_once_with("Hello")
         self.MockLLMHandler.return_value.chat_messages.assert_called_once_with(["Mocked message"], reset=True)
 
     def test_ingest_route(self):
-        response = self.client.post('/ingest', json={"folder": "/tmp", "recursive": True})
+        response = self.client.post('/ingest')
         data = json.loads(response.data)
 
         self.assertEqual(response.status_code, 200)

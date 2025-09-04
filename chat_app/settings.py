@@ -3,18 +3,18 @@ from __future__ import annotations
 
 import os
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, Optional
 
 try:
-	import tomllib as toml  # py311+
+	import tomllib as toml	# py311+
 except ModuleNotFoundError:
 	import tomli as toml  # type: ignore
 
 try:
-	import tomli_w  
+	import tomli_w	
 except Exception:
-	tomli_w = None  # type: ignore
+	tomli_w = None	# type: ignore
 
 
 _DEFAULT_PATH = os.path.join("config", "settings.toml")
@@ -39,10 +39,16 @@ class VectorStoreCfg:
 	collection: str = "documents"
 
 @dataclass
+class DataDirCfg:
+        path: str
+        recursive: bool = False
+
+
+@dataclass
 class PathsCfg:
-	cache_dir: str = "cache"
-	secret_dirs: list[str] = ["private", "private", "secrets", "secrets", ".ssh", ".ssh"]
-	data_dirs: list[str] = ["./data"]
+        cache_dir: str = "cache"
+        secret_dirs: list[str] = field(default_factory=lambda: ["private", "private", "secrets", "secrets", ".ssh", ".ssh"])
+        data_dirs: list[DataDirCfg] = field(default_factory=lambda: [DataDirCfg(path="./data", recursive=False)])
 
 @dataclass
 class AppCfg:
@@ -58,12 +64,12 @@ class GuardrailsCfg:
 
 @dataclass
 class Settings:
-	app: AppCfg = AppCfg()
-	paths: PathsCfg = PathsCfg()
-	model: ModelCfg = ModelCfg()
-	embeddings: EmbeddingsCfg = EmbeddingsCfg()
-	vectorstore: VectorStoreCfg = VectorStoreCfg()
-	guardrails: GuardrailsCfg = GuardrailsCfg()
+	app: AppCfg = field(default_factory=AppCfg)
+	paths: PathsCfg = field(default_factory=PathsCfg)
+	model: ModelCfg = field(default_factory=ModelCfg)
+	embeddings: EmbeddingsCfg = field(default_factory=EmbeddingsCfg)
+	vectorstore: VectorStoreCfg = field(default_factory=VectorStoreCfg)
+	guardrails: GuardrailsCfg = field(default_factory=GuardrailsCfg)
 
 	def to_dict(self) -> Dict[str, Any]:
 		return {
@@ -76,20 +82,32 @@ class Settings:
 		}
 
 def _dict_to_settings(d: Dict[str, Any]) -> Settings:
-	# minimal "validation": ensure sections/keys exist; fill defaults if missing
-	def get(section: str, defaults: Dict[str, Any]) -> Dict[str, Any]:
-		blob = d.get(section, {})
-		out = dict(defaults); out.update(blob)
-		return out
+        # minimal "validation": ensure sections/keys exist; fill defaults if missing
+        def get(section: str, defaults: Dict[str, Any]) -> Dict[str, Any]:
+                blob = d.get(section, {})
+                out = dict(defaults); out.update(blob)
+                return out
 
-	return Settings(
-		app=AppCfg(**get("app", asdict(AppCfg()))),
-		paths=PathsCfg(**get("paths", asdict(PathsCfg()))),
-		model=ModelCfg(**get("model", asdict(ModelCfg()))),
-		embeddings=EmbeddingsCfg(**get("embeddings", asdict(EmbeddingsCfg()))),
-		vectorstore=VectorStoreCfg(**get("vectorstore", asdict(VectorStoreCfg()))),
-		guardrails=GuardrailsCfg(**get("guardrails", asdict(GuardrailsCfg())))
-	)
+        paths_dict = get("paths", asdict(PathsCfg()))
+        raw_dirs = paths_dict.get("data_dirs", [])
+        norm_dirs = []
+        for item in raw_dirs:
+                if isinstance(item, str):
+                        norm_dirs.append(DataDirCfg(path=item, recursive=False))
+                elif isinstance(item, dict):
+                        path = item.get("path")
+                        if path:
+                                norm_dirs.append(DataDirCfg(path=path, recursive=bool(item.get("recursive", False))))
+        paths_dict["data_dirs"] = norm_dirs
+
+        return Settings(
+                app=AppCfg(**get("app", asdict(AppCfg()))),
+                paths=PathsCfg(**paths_dict),
+                model=ModelCfg(**get("model", asdict(ModelCfg()))),
+                embeddings=EmbeddingsCfg(**get("embeddings", asdict(EmbeddingsCfg()))),
+                vectorstore=VectorStoreCfg(**get("vectorstore", asdict(VectorStoreCfg()))),
+                guardrails=GuardrailsCfg(**get("guardrails", asdict(GuardrailsCfg())))
+        )
 
 
 def load_settings(path: Optional[str] = None) -> Settings:
@@ -133,7 +151,7 @@ def _env_override(d: Dict[str, Any]) -> Dict[str, Any]:
 	VOBA_APP_PORT=9001
 	VOBA_VECTORSTORE_PERSIST_DIR=/mnt/chroma
 	"""
-	out = json.loads(json.dumps(d))  # deep copy
+	out = json.loads(json.dumps(d))	 # deep copy
 	for section, section_dict in d.items():
 		for key, val in section_dict.items():
 			env_key = f"{_ENV_PREFIX}_{section}_{key}".upper()

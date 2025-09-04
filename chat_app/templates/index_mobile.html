@@ -258,19 +258,6 @@
                         transform: none;
                 }
           
-                .recursive-option {
-                        display: flex;
-                        align-items: center;
-                        color: #e2e8f0;
-                        gap: 6px;
-                        font-size: 0.85rem;
-                }
-
-                .recursive-option input {
-                        width: 14px;
-                        height: 14px;
-                }
-
                 .error-message {
                         background: rgba(220, 38, 38, 0.2);
                         color: #fca5a5;
@@ -320,9 +307,7 @@
 
                 <div class="chat-input-container">
                         <div class="input-group">
-                                <input type="text" class="chat-input" id="folderPath" placeholder="Folder path">
-                                <label class="recursive-option"><input type="checkbox" id="recursive">Recursive</label>
-                                <button class="send-button" id="ingestButton">Ingest</button>
+                                <button class="send-button" id="scanButton">Scan</button>
                         </div>
                 </div>
 
@@ -362,32 +347,7 @@
                 const typingIndicator = document.getElementById('typingIndicator');
                 const modeToggle = document.getElementById('modeToggle');
                 const modeLabel = document.getElementById('modeLabel');
-                const folderInput = document.getElementById('folderPath');
-                const ingestButton = document.getElementById('ingestButton');
-                const recursiveCheckbox = document.getElementById('recursive');
-
-                window.addEventListener('dragover', (e) => e.preventDefault());
-                window.addEventListener('drop', (e) => e.preventDefault());
-
-                folderInput.addEventListener('dragover', (e) => {
-                        e.preventDefault();
-                        folderInput.classList.add('dragover');
-                });
-                folderInput.addEventListener('dragleave', () => {
-                        folderInput.classList.remove('dragover');
-                });
-                folderInput.addEventListener('drop', (e) => {
-                        e.preventDefault();
-                        folderInput.classList.remove('dragover');
-                        let droppedPath = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list');
-                        if (!droppedPath && e.dataTransfer.files.length > 0) {
-                                const file = e.dataTransfer.files[0];
-                                droppedPath = file.path || file.name;
-                        }
-                        if (droppedPath) {
-                                folderInput.value = droppedPath.replace(/^file:\/\//, '');
-                        }
-                });
+                const scanButton = document.getElementById('scanButton');
 
                 let isRAGMode = false;
 
@@ -417,7 +377,7 @@
 
 
                 sendButton.addEventListener('click', sendMessage);
-                ingestButton.addEventListener('click', ingestFolder);
+                scanButton.addEventListener('click', scanFolder);
 
                 function normalizeMessagePayload(data) {
                         // Back-compat with old `{ response: "..." }`
@@ -470,17 +430,14 @@
                         typingIndicator.style.display = 'none';
                 }
 
-                function ingestFolder() {
-                        const folder = folderInput.value.trim();
-                        const recursive = recursiveCheckbox.checked;
-                        if (!folder) return;
-                        ingestButton.disabled = true;
+                function scanFolder() {
+                        scanButton.disabled = true;
                         fetch('/ingest', {
                                 method: 'POST',
                                 headers: {
                                         'Content-Type': 'application/json',
                                 },
-                                body: JSON.stringify({ folder: folder, recursive: recursive })
+                                body: JSON.stringify({})
                         })
                         .then(response => response.json())
                         .then(data => {
@@ -491,14 +448,15 @@
                                 }
                                 const payload = normalizeMessagePayload(data);
                                 addMessage(payload, false);
+                                scanButton.textContent = 'Rescan';
                         })
 
                         .catch(error => {
                                 console.error('Error:', error);
-                                addMessage('Error ingesting folder.', false, true);
+                                addMessage('Error scanning folder.', false, true);
                         })
                         .finally(() => {
-                                ingestButton.disabled = false;
+                                scanButton.disabled = false;
                         });
                 }
 

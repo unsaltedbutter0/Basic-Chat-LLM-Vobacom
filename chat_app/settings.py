@@ -49,13 +49,14 @@ class DataDirCfg:
 
 @dataclass
 class PathsCfg:
+
     cache_dir: str = "cache"
     secret_dirs: list[str] = field(default_factory=lambda: [
                                    "private", "private", "secrets", "secrets", ".ssh", ".ssh"])
     data_dirs: list[DataDirCfg] = field(
         default_factory=lambda: [DataDirCfg(path="./data", recursive=False)])
 
-
+      
 @dataclass
 class AppCfg:
     env: str = "dev"
@@ -72,6 +73,7 @@ class GuardrailsCfg:
 
 @dataclass
 class Settings:
+
     app: AppCfg = field(default_factory=AppCfg)
     paths: PathsCfg = field(default_factory=PathsCfg)
     model: ModelCfg = field(default_factory=ModelCfg)
@@ -138,38 +140,49 @@ def merge_settings(cfg: Settings, patch: Dict[str, Any]) -> Settings:
 
 
 def load_settings(path: Optional[str] = None) -> Settings:
-    if path is None:
-        path = os.environ.get(f"{_ENV_PREFIX}_CONFIG") or _DEFAULT_PATH
+        if path is None:
+                path = os.environ.get(f"{_ENV_PREFIX}_CONFIG") or _DEFAULT_PATH
 
-    if not os.path.exists(path):
-        # ensure dir exists and write defaults
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        save_settings(Settings(), path)
-        return Settings()
-
-    with open(path, "rb") as f:
-        raw = toml.load(f)
-
-    raw = _env_override(raw)
-    return _dict_to_settings(raw)
-
-
-def save_settings(s: Settings | dict, path: Optional[str] = None) -> None:
-    if isinstance(s, dict):
-        s = _dict_to_settings(s)
-    if path is None:
-        path = os.environ.get(f"{_ENV_PREFIX}_CONFIG") or _DEFAULT_PATH
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-
-    data = s.to_dict()
-    if tomli_w:
-        with open(path, "wb") as f:
-            f.write(tomli_w.dumps(data).encode("utf-8"))
-    else:
-        # fallback to json if tomli_w not installed
         json_path = os.path.splitext(path)[0] + ".json"
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        ext = os.path.splitext(path)[1].lower()
+
+        if os.path.exists(path):
+                if ext == ".json":
+                        with open(path, "r", encoding="utf-8") as f:
+                                raw = json.load(f)
+                else:
+                        with open(path, "rb") as f:
+                                raw = toml.load(f)
+        elif os.path.exists(json_path):
+                with open(json_path, "r", encoding="utf-8") as f:
+                        raw = json.load(f)
+        else:
+                # ensure dir exists and write defaults
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                save_settings(Settings(), path)
+                return load_settings(path)
+
+        raw = _env_override(raw)
+        return _dict_to_settings(raw)
+
+
+def save_settings(s: Settings|dict, path: Optional[str] = None) -> None:
+	if isinstance(s, dict):
+		s = _dict_to_settings(s)
+	if path is None:
+		path = os.environ.get(f"{_ENV_PREFIX}_CONFIG") or _DEFAULT_PATH
+	os.makedirs(os.path.dirname(path), exist_ok=True)
+
+	data = s.to_dict()
+	if tomli_w:
+		with open(path, "wb") as f:
+			f.write(tomli_w.dumps(data).encode("utf-8"))
+	else:
+		# fallback to json if tomli_w not installed
+		json_path = os.path.splitext(path)[0] + ".json"
+		with open(json_path, "w", encoding="utf-8") as f:
+			json.dump(data, f, indent=2)
+
 
 # for later maybe
 

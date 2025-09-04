@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, Optional
 
 try:
@@ -40,9 +40,9 @@ class VectorStoreCfg:
 
 @dataclass
 class PathsCfg:
-	cache_dir: str = "cache"
-	secret_dirs: list[str] = ["private", "private", "secrets", "secrets", ".ssh", ".ssh"]
-	data_dirs: list[str] = ["./data"]
+        cache_dir: str = "cache"
+        secret_dirs: list[str] = field(default_factory=lambda: ["private", "private", "secrets", "secrets", ".ssh", ".ssh"])
+        data_dirs: list[str] = field(default_factory=lambda: ["./data"])
 
 @dataclass
 class AppCfg:
@@ -58,22 +58,22 @@ class GuardrailsCfg:
 
 @dataclass
 class Settings:
-	app: AppCfg = AppCfg()
-	paths: PathsCfg = PathsCfg()
-	model: ModelCfg = ModelCfg()
-	embeddings: EmbeddingsCfg = EmbeddingsCfg()
-	vectorstore: VectorStoreCfg = VectorStoreCfg()
-	guardrails: GuardrailsCfg = GuardrailsCfg()
+        app: AppCfg = field(default_factory=AppCfg)
+        paths: PathsCfg = field(default_factory=PathsCfg)
+        model: ModelCfg = field(default_factory=ModelCfg)
+        embeddings: EmbeddingsCfg = field(default_factory=EmbeddingsCfg)
+        vectorstore: VectorStoreCfg = field(default_factory=VectorStoreCfg)
+        guardrails: GuardrailsCfg = field(default_factory=GuardrailsCfg)
 
-	def to_dict(self) -> Dict[str, Any]:
-		return {
-			"app": asdict(self.app),
-			"paths": asdict(self.paths),
-			"model": asdict(self.model),
-			"embeddings": asdict(self.embeddings),
-			"vectorstore": asdict(self.vectorstore),
-			"guardrails": asdict(self.guardrails),
-		}
+        def to_dict(self) -> Dict[str, Any]:
+                return {
+                        "app": asdict(self.app),
+                        "paths": asdict(self.paths),
+                        "model": asdict(self.model),
+                        "embeddings": asdict(self.embeddings),
+                        "vectorstore": asdict(self.vectorstore),
+                        "guardrails": asdict(self.guardrails),
+                }
 
 def _dict_to_settings(d: Dict[str, Any]) -> Settings:
 	# minimal "validation": ensure sections/keys exist; fill defaults if missing
@@ -93,20 +93,30 @@ def _dict_to_settings(d: Dict[str, Any]) -> Settings:
 
 
 def load_settings(path: Optional[str] = None) -> Settings:
-	if path is None:
-		path = os.environ.get(f"{_ENV_PREFIX}_CONFIG") or _DEFAULT_PATH
+        if path is None:
+                path = os.environ.get(f"{_ENV_PREFIX}_CONFIG") or _DEFAULT_PATH
 
-	if not os.path.exists(path):
-		# ensure dir exists and write defaults
-		os.makedirs(os.path.dirname(path), exist_ok=True)
-		save_settings(Settings(), path)
-		return Settings()
+        json_path = os.path.splitext(path)[0] + ".json"
+        ext = os.path.splitext(path)[1].lower()
 
-	with open(path, "rb") as f:
-		raw = toml.load(f)
+        if os.path.exists(path):
+                if ext == ".json":
+                        with open(path, "r", encoding="utf-8") as f:
+                                raw = json.load(f)
+                else:
+                        with open(path, "rb") as f:
+                                raw = toml.load(f)
+        elif os.path.exists(json_path):
+                with open(json_path, "r", encoding="utf-8") as f:
+                        raw = json.load(f)
+        else:
+                # ensure dir exists and write defaults
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                save_settings(Settings(), path)
+                return load_settings(path)
 
-	raw = _env_override(raw)
-	return _dict_to_settings(raw)
+        raw = _env_override(raw)
+        return _dict_to_settings(raw)
 
 
 def save_settings(s: Settings|dict, path: Optional[str] = None) -> None:

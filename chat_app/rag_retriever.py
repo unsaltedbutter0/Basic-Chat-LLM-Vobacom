@@ -83,7 +83,7 @@ class RAGRetriever:
 		scores_nested = results.get("scores", [[]])
 		normalized_scores_nested = results.get("normalized_scores", [[]])
 
-		fmt_ids = ()
+		fmt_ids = []
 		def _fmt_id(meta, idx):
 			sf = (meta or {}).get("source_file", "source")
 			ch = (meta or {}).get("chunk_index", idx)
@@ -93,10 +93,10 @@ class RAGRetriever:
 
 		chunks = []
 		for i, txt in enumerate(texts_nested[0] if texts_nested else []):
-			txt = gr.redact_private(txt)
-			txt = "**Malicous prompt detected**" if gr.looks_sus(txt) else txt
+			txt = self.gr.redact_private(txt)
+			txt = "**Malicous prompt detected**" if self.gr.looks_sus(txt) else txt
 			meta = metas_nested[0][i] if (metas_nested and metas_nested[0] and i < len(metas_nested[0])) else {}
-			norm_score = normalized_scores_nested[0][i] if (normalized_scores_nested and normalized_scores_nested[0]) else None
+			norm_score = (normalized_scores_nested[0][i] if (normalized_scores_nested and normalized_scores_nested[0] and i < len(normalized_scores_nested[0])) else None)
 			warning = label_war if (norm_score and norm_score < .65) else None
 			if warning:
 				chunks.append(f"[{warning}]\n[score: {norm_score}]\n[{_fmt_id(meta, i)}]\n{txt}")

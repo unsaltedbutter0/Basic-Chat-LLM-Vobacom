@@ -74,8 +74,15 @@
               </div>
             </div>
             <div style="margin-top:12px;">
-              <label for="data_dirs">data_dirs (comma-separated)</label>
-              <input id="data_dirs" name="data_dirs" type="text" placeholder="./data" />
+              <label>Add data directory</label>
+              <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
+                <input id="new_data_dir" type="text" placeholder="./data" style="flex:1;" />
+                <label style="display:flex; align-items:center; gap:4px;">
+                  <input type="checkbox" id="new_data_recursive" /> Recursive
+                </label>
+                <button type="button" onclick="addDataDir()">Add</button>
+              </div>
+              <div id="dataDirsList" class="help" style="margin-top:8px;"></div>
             </div>
           </fieldset>
 
@@ -135,6 +142,7 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
+    let dataDirs = [];
 
     function csvToArray(s) {
       return (s || "")
@@ -155,6 +163,33 @@
       return Math.floor(n);
     }
 
+    function renderDataDirs() {
+      const list = $("dataDirsList");
+      list.textContent = "";
+      dataDirs.forEach((d, idx) => {
+        const row = document.createElement("div");
+        row.textContent = `${d.path} (${d.recursive ? 'recursive' : 'shallow'})`;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = "Remove";
+        btn.style.marginLeft = "8px";
+        btn.onclick = () => { dataDirs.splice(idx, 1); renderDataDirs(); buildAndPreview(); };
+        row.appendChild(btn);
+        list.appendChild(row);
+      });
+    }
+
+    function addDataDir() {
+      const path = $("new_data_dir").value.trim();
+      if (!path) return;
+      const recursive = $("new_data_recursive").checked;
+      dataDirs.push({ path, recursive });
+      $("new_data_dir").value = "";
+      $("new_data_recursive").checked = false;
+      renderDataDirs();
+      buildAndPreview();
+    }
+
     function buildPayload() {
       const payload = {
         vectorstore: {
@@ -164,7 +199,7 @@
         paths: {
           cache_dir: $("cache_dir").value.trim() || "cache",
           secret_dirs: csvToArray($("secret_dirs").value) ,
-          data_dirs: csvToArray($("data_dirs").value) || ["./data"],
+          data_dirs: dataDirs.slice(),
         },
         app: {
           port: sanitizePort($("port").value || 8000),
@@ -231,7 +266,14 @@
         if (obj.paths) {
           if (obj.paths.cache_dir) $("cache_dir").value = obj.paths.cache_dir;
           if (obj.paths.secret_dirs) $("secret_dirs").value = (obj.paths.secret_dirs || []).join(", ");
-          if (obj.paths.data_dirs) $("data_dirs").value = (obj.paths.data_dirs || []).join(", ");
+          if (obj.paths.data_dirs) {
+            dataDirs = (obj.paths.data_dirs || []).map(d =>
+              typeof d === 'string'
+                ? { path: d, recursive: false }
+                : { path: d.path, recursive: !!d.recursive }
+            );
+            renderDataDirs();
+          }
         }
         if (obj.app) {
           if (obj.app.port != null) $("port").value = obj.app.port;
@@ -260,7 +302,8 @@
       $("collection").value = "documents";
       $("cache_dir").value = "cache";
       $("secret_dirs").value = "private, secrets, .ssh"; // de-duped view
-      $("data_dirs").value = "./data";
+      dataDirs = [{ path: "./data", recursive: false }];
+      renderDataDirs();
       $("port").value = 8000;
       $("host").value = "127.0.0.1";
       $("max_context").value = 3;

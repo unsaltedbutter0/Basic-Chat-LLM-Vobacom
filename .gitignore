@@ -33,3 +33,6 @@ smoke*
 
 # DataBases
 *db/
+
+# config
+config/

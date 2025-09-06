@@ -56,6 +56,10 @@ class RAGStore:
 
 		# Where is tesseract.exe? No PATH required.
 		self.tesseract_dir = self._resolve_tesseract_dir(tesseract_dir)
+		self.tessdata_dir = self._resolve_tessdata_dir(self.tesseract_dir)
+		if self.tessdata_dir:
+			os.environ.setdefault("TESSDATA_PREFIX", str(self.tessdata_dir) + os.sep)
+
 		self.tesseract_cmd = self._resolve_tesseract_cmd(self.tesseract_dir)
 		self._maybe_set_tessdata_prefix(self.tesseract_dir)
 
@@ -263,7 +267,7 @@ class RAGStore:
 
 			# Normalize text artifacts from PDFs (ligatures, soft hyphens, split words, ws)
 			txt = self._normalize_text(txt)
-			if not txt or len(txt) < 40:	# skip junky/ultra-short chunks
+			if not txt or len(txt) < 10:	# skip junky/ultra-short chunks
 				continue
 
 			meta_raw = {
@@ -304,28 +308,30 @@ class RAGStore:
 
 	def _docling_convert(self, abs_path: str, *, ocr: bool, do_picture_description: bool = False):
 		popts = PdfPipelineOptions()
-		# Keep VLM off for PDFs unless explicitly requested
 		popts.do_picture_description = bool(do_picture_description)
-
-		# OCR tuning: stable + quiet
-		popts.images_scale = 2.0			# raster a bit larger → better OCR stability
-		popts.ocr_batch_size = 1			# avoid over-threading Tesseract on Windows
+		popts.images_scale = 3.0
+		popts.ocr_batch_size = 1
 
 		popts.do_ocr = bool(ocr)
 		if popts.do_ocr:
-			# Point directly at tesseract.exe; no PATH required
+			tdir = str(self.tessdata_dir) if self.tessdata_dir else None
+			desired_langs = ["eng","pol"]
+			use_langs = [l for l in desired_langs if l in self._installed_tess_langs()] or ["eng"]
+			self._debug(f"[OCR] Using langs={use_langs}, tessdata_dir={tdir}")
+
 			popts.ocr_options = TesseractCliOcrOptions(
 				tesseract_cmd=self.tesseract_cmd,
-				path=str(self.tesseract_dir) if self.tesseract_dir else None,
-				lang=["eng", "pol"],				# explicit langs; avoids OSD costs
-				force_full_page_ocr=False,			# prefer text layer; OCR only raster regions
-				bitmap_area_threshold=0.2,			# skip tiny bitmaps → less noise
+				path=tdir,								# <- pass tessdata folder, not install root
+				lang=use_langs,
+				force_full_page_ocr=True,
+				bitmap_area_threshold=0.0,
 			)
 
 		self.converter = DocumentConverter(format_options={
 			InputFormat.PDF: PdfFormatOption(pipeline_options=popts)
 		})
 		return self.converter.convert(abs_path)
+
 
 	# ---------------------------
 	# Utilities
@@ -433,6 +439,13 @@ class RAGStore:
 		except Exception:
 			return None
 
+	def _resolve_tessdata_dir(self, tesseract_dir: Path | None) -> Path | None:
+		if not tesseract_dir:
+			return None
+		td = tesseract_dir / "tessdata"
+		return td if td.exists() else None
+
+
 	def _resolve_tesseract_dir(self, preferred: str | None) -> Path | None:
 		if preferred:
 			p = Path(preferred)
@@ -463,6 +476,21 @@ class RAGStore:
 		td = tesseract_dir / "tessdata"
 		if td.exists():
 			os.environ.setdefault("TESSDATA_PREFIX", str(td) + os.sep)
+
+	def _installed_tess_langs(self) -> set[str]:
+		"""
+		Return set of installed Tesseract language codes, e.g. {'eng','pol'}.
+		"""
+		try:
+			import subprocess, shlex
+			cmd = f"\"{self.tesseract_cmd}\" --list-langs"
+			out = subprocess.check_output(shlex.split(cmd), stderr=subprocess.STDOUT, text=True)
+			langs = {ln.strip() for ln in out.splitlines() if ln.strip() and not ln.lower().startswith("list of")}
+			return langs
+		except Exception as e:
+			self._debug(f"[OCR] Couldn't list Tesseract languages: {e}")
+			return set()
+
 
 	def _debug(self, msg: str) -> None:
 		try:

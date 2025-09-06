@@ -22,14 +22,10 @@ _TECH_SCI_KEYWORDS = (
 	"gpu","cuda","memory","latency","throughput","benchmark","regex","http","rest","grpc","json","yaml","xml",
 	"encryption","hash","jwt","oauth","tls","ssl","cipher","key","token",
 	"math","algebra","calculus","statistics","probability","combinatorics","physics","chemistry","biology",
-	"embeddings","vector","cosine","semantic","retrieval","index","chroma","docling","ocr","tesseract"
+	"embeddings","vector","cosine","semantic","retrieval","index","chroma","docling","ocr","tesseract","space"
 )
 
-cfg = load_settings()
-
-ALLOW_ONLY_TECH	= cfg.guardrails.ALLOW_ONLY_TECH
-BLOCK_PRIVATE	= cfg.guardrails.BLOCK_PRIVATE
-_SECRET_DIRS = cfg.paths.secret_dirs
+cfg = load_settings
 
 _SECRET_REGEXES = (
 	re.compile(r"\b[A-Za-z0-9_]{16,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}"),	# jwt-ish
@@ -40,6 +36,12 @@ _PII_REGEXES = (
 	re.compile(r"\b\d{2,4}[-\s]?\d{2,4}[-\s]?\d{2,4}[-\s]?\d{2,4}\b"),				# generic long numbers
 	re.compile(r"\b[\w\.-]+@[\w\.-]+\.\w+\b"),										# emails
 	re.compile(r"\b\+?\d{1,3}[-\s]?\(?\d{2,4}\)?[-\s]?\d{3,4}[-\s]?\d{3,4}\b"),		# phones
+)
+
+_ADDRESS_REGEXES = (
+	re.compile(r"(?i)\b(address|adres)\s*:\s*.+"),  # 'address: ...' / 'adres: ...'
+	re.compile(r"(?i)\b(ul\.|al\.)\s+[^\n,]+?\s+\d+[^\n,]*"),  # 'ul. Foobar 12' / 'al. ...'
+	re.compile(r"\b\d{2}-\d{3}\b"),  # PL postal code like 00-071
 )
 
 class Guardrails():
@@ -84,13 +86,22 @@ class Guardrails():
 		text = (t or "").lower()
 		return any(pattern in text for pattern in SUSPICIOUS_PATTERNS)
 
-	def post_processing(self, llm_response: str) -> str:
+	def post_processing(self, llm_response: str, is_sus: bool, was_redacted: bool) -> str:
+		to_add = "\n"
+		if was_redacted:
+			to_add += "\nWarning!:**Redacted Private Information**"
+		if is_sus:
+			to_add += "\nWarning!:**Malicous prompt detected**, skiping infected context"
 		if not self._has_citation(llm_response):
-			llm_response += "\n\n_Note: no source snippets were cited for this answer._"
+			to_add += "\n_Note: no source snippets were cited for this answer._"
+		if to_add != "\n":
+			llm_response += to_add
 		return llm_response
 
 	def is_tech_science(self, q: str) -> bool:
-		if not q or len(q) < 2:
+		if not cfg().guardrails.ALLOW_ONLY_TECH:
+			return True
+		if not q or len(q) < 5:
 			return False
 		lq = q.lower()
 		# fast allow if code-ish content present
@@ -100,24 +111,29 @@ class Guardrails():
 		hits = sum(1 for k in _TECH_SCI_KEYWORDS if k in lq)
 		return hits >= 1
 
-	def redact_private(self, text: str, filter: bool=True) -> str:
-		if not filter:
-			return text
+	def redact_private(self, text: str) -> str:
+		was_redacted = False
 		redacted = text
+		if not cfg().guardrails.BLOCK_PRIVATE:
+			return redacted, was_redacted
 		if self._text_has_private_bits(redacted):
+			was_redacted = True
 			redacted = re.sub(_SECRET_REGEXES[0], "[REDACTED-JWT]", redacted)
 			for rx in _SECRET_REGEXES[1:]:
 				redacted = rx.sub("[REDACTED-SECRET]", redacted)
 			for rx in _PII_REGEXES:
 				redacted = rx.sub("[REDACTED-PII]", redacted)
-		return redacted
+			for rx in _ADDRESS_REGEXES:
+				redacted = rx.sub("[REDACTED-ADDRESS]", redacted)
+		
+		return redacted, was_redacted
 
 	# ---------- helpers ----------
 	def _text_has_private_bits(self, text: str) -> bool:
 		# TODO: check for private atribute or do it in ret
 		if not text:
 			return False
-		for rx in _SECRET_REGEXES + _PII_REGEXES:
+		for rx in _SECRET_REGEXES + _PII_REGEXES + _ADDRESS_REGEXES:
 			if rx.search(text):
 				return True
 		return False

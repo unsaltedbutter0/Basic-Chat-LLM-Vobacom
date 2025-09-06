@@ -8,6 +8,7 @@
 # PNG, JPEG, TIFF, BMP, WEBP	
 # scanner.py
 from pathlib import Path
+from .settings import load_settings
 import os
 
 class Scanner:
@@ -33,7 +34,7 @@ class Scanner:
 				]
 			)
 		)
-		self.SKIP_DIRS = set(skip_dirs or [])
+		self.SKIP_DIRS = set(load_settings().paths.secret_dirs or [])
 		self.follow_symlinks = bool(follow_symlinks)
 
 	def scan(
@@ -117,7 +118,7 @@ class Scanner:
 	def _should_skip_dir(self, p: Path) -> bool:
 		# If any path component matches a configured skip dir (exact match), skip
 		parts = set(p.resolve().parts)
-		return any(skip in parts for skip in self.SKIP_DIRS)
+		return any(skip in parts for skip in cfg().paths.secret_dirs)
 
 	def _is_hidden(self, root: Path, p: Path) -> bool:
 		# A path is considered hidden if any relative component starts with a dot.

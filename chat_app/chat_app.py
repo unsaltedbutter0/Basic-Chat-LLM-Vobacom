@@ -30,14 +30,13 @@ except Exception:
 from .settings import load_settings, save_settings, merge_settings
 
 logger = logging.getLogger(__name__)
+cfg = load_settings
 
 
 class ChatApp:
     def __init__(self, model_id: Optional[str] = None):
-        cfg = load_settings()
         if not model_id:
-            model_id = cfg.model.model_id
-        self.max_context = cfg.app.max_context
+            model_id = cfg().model.model_id
 
         if not logging.getLogger().hasHandlers():
             logging.basicConfig(level=logging.INFO)
@@ -61,16 +60,11 @@ class ChatApp:
 
         self.app.add_url_rule('/', view_func=self.index, methods=['GET'])
         self.app.add_url_rule('/chat', view_func=self.chat, methods=['POST'])
-        self.app.add_url_rule(
-            '/rag', view_func=self.rag_chat, methods=['POST'])
-        self.app.add_url_rule(
-            '/ingest', view_func=self.ingest_folder, methods=['POST'])
-        self.app.add_url_rule(
-            '/settings', view_func=self.settings, methods=['GET'])
-        self.app.add_url_rule(
-            '/api/settings', view_func=self.get_settings_api, methods=['GET'])
-        self.app.add_url_rule(
-            '/api/settings', view_func=self.post_settings_api, methods=['POST'])
+        self.app.add_url_rule('/rag', view_func=self.rag_chat, methods=['POST'])
+        self.app.add_url_rule('/ingest', view_func=self.ingest_folder, methods=['POST'])
+        self.app.add_url_rule('/settings', view_func=self.settings, methods=['GET'])
+        self.app.add_url_rule('/api/settings', view_func=self.get_settings_api, methods=['GET'])
+        self.app.add_url_rule('/api/settings', view_func=self.post_settings_api, methods=['POST'])
 
     def index(self):
         try:
@@ -89,13 +83,13 @@ class ChatApp:
         try:
             user_message = request.json['message']
             logger.info("Chat message received: %s", user_message)
-            key = self._cache_key(user_message, k=self.max_context)
+            key = self._cache_key(user_message, k=cfg().app.max_context)
             cached = self.cache.get(key)
             if cached:
                 processed_response = cached
             else:
                 llm_response = self.llm.chat_next(user_message)
-                processed_response = self.guard.post_processing(llm_response)
+                processed_response = self.guard.post_processing(llm_response, False, False)
                 self.cache.add(key, llm_response)
             return jsonify({
                 'message': {
@@ -115,12 +109,15 @@ class ChatApp:
             processed_response = None
             user_message = request.json['message']
             logger.info("RAG chat message received: %s", user_message)
-            key = self._cache_key(user_message, k=self.max_context)
+
+            if not self.guard.is_tech_science(user_message):
+                return self._is_chit_chat()
+            key = self._cache_key(user_message, k=cfg().app.max_context)
 
             rec = self.cache.get(key, get_extra=True)
             cached, cache_meta = rec if rec else (None, None)
-            messages, sources, fmt_ids_new = self.rag.build_messages_hybrid(
-                user_message)
+            result = self.rag.build_messages_hybrid(user_message)
+            messages, sources, fmt_ids_new = (result["messages"], result["sources"], result["fmt_ids"])
             if cached and cache_meta and cache_meta["fmt_ids"]:
                 fmt_ids_old = cache_meta["fmt_ids"]
                 if self._is_similar_jaccard(fmt_ids_new, fmt_ids_old):
@@ -130,9 +127,12 @@ class ChatApp:
 
                 # Stateless RAG turn: reset history so prior chit-chat doesn't leak
                 llm_response = self.llm.chat_messages(messages, reset=True)
-                processed_response = self.guard.post_processing(llm_response)
+                processed_response = self.guard.post_processing(
+                            llm_response, 
+                            is_sus=result["is_sus"], 
+                            was_redacted=result["was_redacted"])
                 self.cache.add(key, processed_response,
-                               extra_meta={"fmt_ids": fmt_ids_new})
+                               extra_meta={"fmt_ids": sorted(list(fmt_ids_new))})
 
             return jsonify({
                 'message': {
@@ -189,7 +189,7 @@ class ChatApp:
                 'files_ingested': len(added),
                 'message': {
                     'format': 'text',
-                    'content': f'Scanned {len(added)} files'
+                    'content': f'added {len(added)} ids'
                 }
             }), 200
         except Exception as e:
@@ -199,6 +199,18 @@ class ChatApp:
     def run(self, **kwargs):
         logger.info("Starting ChatApp server with args: %s", kwargs)
         self.app.run(**kwargs)
+
+    def _is_chit_chat(self):
+        return jsonify({
+                'message': {
+                    'format': 'markdown',
+                    'content': '_Sorry but only tech/science related questions are allowed_',
+                },
+                'meta': {
+                    'sources': '',
+                    'mode': 'rag',
+                }
+            }), 200
 
     def _is_similar_jaccard(self, a: set[str], b: set[str], tau: float = 0.8) -> bool:
         A, B = set(a or []), set(b or [])
@@ -210,10 +222,11 @@ class ChatApp:
         return False
 
     def _cache_key(self, question: str, k: Optional[int] = None, model_id: Optional[str] = None, prompt_ver: str = "v1") -> str:
+        BLOCK_PRIVATE = cfg().guardrails.BLOCK_PRIVATE
+        ALLOW_ONLY_TECH = cfg().guardrails.ALLOW_ONLY_TECH
         k = k if k else load_settings().app.max_context
         model_id = model_id or getattr(self.llm, "model_id", "unknown")
-        return f"{prompt_ver}|{model_id}|k{k}|{question}"
-
+        return f"{prompt_ver}|{model_id}|k{k}|{question}|BP{BLOCK_PRIVATE}|AOT{ALLOW_ONLY_TECH}"
 
 if __name__ == '__main__':
     chat_app = ChatApp("NousResearch/Hermes-3-Llama-3.1-8B")

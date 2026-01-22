@@ -32,3 +32,5 @@
 - [ ] Reranker
 - [x] VLM impementation
 	- [ ] remove VLM from memory when not in use
+implementacja mechanizmu RAG z wykorzystaniem sieci LLM
+nacisk na technike

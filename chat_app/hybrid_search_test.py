@@ -3,34 +3,34 @@
 # - questions
 # - sources
 # - Q <-> S connection list (Qids and Sids?)
+# -	no rehydration on bm25
 # -	
-# -
 # -
 
 TEST_SOURCES = [
-	"wiki_pages/6-7 meme - Wikipedia.html",
-	"wiki_pages/Chimpanzee - Wikipedia.html",
-	"wiki_pages/Computer science - Wikipedia.html",
-	"wiki_pages/IKEA - Wikipedia.html",
 	"wiki_pages/Linux - Wikipedia.html",
+	"wiki_pages/Computer science - Wikipedia.html",
 	"wiki_pages/Malware - Wikipedia.html",
 	"wiki_pages/Minecraft - Wikipedia.html",
+	"wiki_pages/6-7 meme - Wikipedia.html",
+	"wiki_pages/IKEA - Wikipedia.html",
 	"wiki_pages/Number theory - Wikipedia.html",
-	"wiki_pages/Poznań - Wikipedia.html",
-	"wiki_pages/Poznań University of Technology - Wikipedia.html",
+	"wiki_pages/Poznan University of Technology - Wikipedia.html",
+	"wiki_pages/Poznan - Wikipedia.html",
+	"wiki_pages/Chimpanzee - Wikipedia.html",
 	"wiki_pages/SCP Foundation - Wikipedia.html",
 ]
 KEYWORD_SEARCHES = [
 	"What types of window managers exist for X11?",
-	"What are the main subfields of computer science?",
-	"What are the main types of malware?",
-	"What game modes are available in Minecraft?",
-	"What is the SCP Foundation?",
-	"When was IKEA founded?",
-	"What is number theory?",
-	"When was Poznań University of Technology established?",
-	"Where is Poznań located?",
-	"Where do chimpanzees naturally live?",
+	"What are crucial areas of computer science?",
+	"In what ways can malware be classified?",
+	"Who originally created Minecraft?",
+	"When did six seven meme emerged?",
+	"When was the first IKEA store opened?",
+	"What is the earliest historical find of an arithmetical nature?",
+	"What is a Poznań University of Technology?",
+	"What was officially named Haupt- und Residenzstadt Posen?",
+	"What does chimpanzee's diet consists of?",
 
 ]
 SEMNATIC_SEARCHES = [
@@ -64,19 +64,33 @@ FUZZY_SEARCHES = [
 from .rag_store import RAGStore
 from .rag_retriever import RAGRetriever
 import json
-
+import os
 
 store = RAGStore(chroma_dir="chroma_reseach")
-store.ingest(TEST_SOURCES)
-
 rag = RAGRetriever(store)
-
 sources_with_ids = dict()
 
-for source in TEST_SOURCES:
-	ids = store.ingest(source)
-	sources_with_ids[source] = ids
+# for source in TEST_SOURCES:
+# 	ids = store.ingest(source)
+# 	sources_with_ids[source] = ids
 
-with open('sources_with_ids.json', 'w') as f:
-	json.dump(sources_with_ids, f)
+# with open('sources_with_ids.json', 'w') as f:
+# 	json.dump(sources_with_ids, f)
 
+core_chunks = dict()
+for query in KEYWORD_SEARCHES + SEMNATIC_SEARCHES + FUZZY_SEARCHES:
+	dense = store.query(query, n_results=10, include=("documents","metadatas","distances"))
+	d_ids = dense.get("ids", [[]])[0] if "ids" in dense else []
+	d_docs = dense.get("documents", [[]])[0]
+	d_meta = dense.get("metadatas", [[]])[0]
+	d_dists = dense.get("distances", [[]])[0]
+	print(f"############################ THE Q: {query} ############################")
+	for i, (doc, d_id) in enumerate(zip(d_docs, d_ids)):
+		print(f"{i}. Chunk with id '{d_id}' ############################")
+		print(doc, "\n")
+	chosen_core_chunk = int(input("Which one good sir?\n>"))
+	core_chunks[query] = d_ids[chosen_core_chunk]
+	os.system('cls' if os.name == 'nt' else 'clear')
+
+with open('core_chunks.json', 'w') as f:
+	json.dump(core_chunks, f)

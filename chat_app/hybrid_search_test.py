@@ -33,7 +33,7 @@ KEYWORD_SEARCHES = [
 	"When and where was the name “chimpanze” first recorded in written sources?",
 
 ]
-SEMNATIC_SEARCHES = [
+SEMANTIC_SEARCHES = [
 	"Which licensing model requires that software derived from shared source code must also remain freely redistributable?",
 	"How did the expansion of computing beyond numerical calculation contribute to the formation of a new scientific field?",
 	"How does a type of malicious software propagate by embedding itself into other executable components without a user’s awareness?",
@@ -61,16 +61,27 @@ FUZZY_SEARCHES = [
 
 ]
 
+QUESTIONS = {}
+
+i = 0
+for q in KEYWORD_SEARCHES + SEMANTIC_SEARCHES + FUZZY_SEARCHES:
+	QUESTIONS[q] = i
+	if i == 9:
+		i = 0
+		continue
+	else:
+		i += 1
+
 K = 3
 
-from .rag_store import RAGStore
-from .rag_retriever import RAGRetriever
+# from .rag_store import RAGStore
+# from .rag_retriever import RAGRetriever
 import json
 import os
 
-store = RAGStore(chroma_dir="chroma_reseach")
-rag = RAGRetriever(store)
-sources_with_ids = dict()
+# store = RAGStore(chroma_dir="chroma_reseach")
+# rag = RAGRetriever(store)
+# sources_with_ids = dict()
 
 # for source in TEST_SOURCES:
 # 	ids = store.ingest(source)
@@ -97,21 +108,84 @@ sources_with_ids = dict()
 # with open('core_chunks.json', 'w') as f:
 # 	json.dump(core_chunks, f)
 
+the_ids = [
+	"c32600d5cc40a6f4ab5c1cae15b1824ec467f04f", 
+	"cedefd9620cee2d849d8517db04cc1e5adac0494",
+	"c5f82e938eea27aba5557984ab7361d874816405",
+	"f896dcef05642d2a18d4737c2c0fc18ecff65563",
+	"b7df9a16363ba1b9e2970abd1a17673b2865af7f",
+	"cf20c76e2ee5f8fd1308b52415e38278b058453e",
+	"8496eaa759fbb76e3f9bd6021074a1e249d116ec",
+	"f021a2fce6ca227a3e10b0c302d8c672e71b65d7",
+	"c61a3018281dd7bacc9b47e5db14758e8e95a3c3",
+	"ee25a689db8f849a81aec57a6ee3a2479e470fdf",
+]
+
 # recall = 1 or 0
 # mrr = 1/k
 
-results = dict()
+# results = dict()
 
-for query in KEYWORD_SEARCHES + SEMNATIC_SEARCHES + FUZZY_SEARCHES:
-	dense = store.query(query, n_results=K, include=("documents","metadatas","distances"))
-	d_ids = dense.get("ids", [[]])[0] if "ids" in dense else []
-	sparse = store.sparse_query(query, n_results=K)
-	s_ids = sparse.get("ids", [[]])[0] if "ids" in dense else []
-	hybrid = rag.hybrid_query(query, top_k=K, include_ids=True)
-	h_ids = hybrid.get("ids", [[]])[0] if "ids" in dense else []
+# for query in KEYWORD_SEARCHES + SEMANTIC_SEARCHES + FUZZY_SEARCHES:
+# 	dense = store.query(query, n_results=K, include=("documents","metadatas","distances"))
+# 	d_ids = dense.get("ids", [[]])[0] if "ids" in dense else []
+# 	sparse = store.sparse_query(query, n_results=K)
+# 	s_ids = sparse.get("ids", [[]])[0] if "ids" in dense else []
+# 	hybrid = rag.hybrid_query(query, top_k=K, include_ids=True)
+# 	h_ids = hybrid.get("ids", [[]])[0] if "ids" in dense else []
 
-	results[query] = {"dense": d_ids, "sparse": s_ids, "hybrid": h_ids}
+# 	results[query] = {"dense": d_ids, "sparse": s_ids, "hybrid": h_ids}
 
-with open('results.json', 'w') as f:
-	json.dump(results, f)
+# with open('results.json', 'w') as f:
+# 	json.dump(results, f)
 
+with open("results.json", "r") as f:
+    results = json.loads(f.read())
+
+recalls = {}	# {q: {s:int,...}} -> 
+mrrs = {}
+for q, data in results.items():
+	correct_id = the_ids[QUESTIONS[q]]
+	recall = {}
+	mrr = {}
+	for search, ids in data.items():
+		 
+
+		if correct_id in ids:
+			recall[search] = 1
+			mrr[search] = 1.0/(ids.index(correct_id) + 1)
+		else:
+			recall[search] = 0
+			mrr[search] = 0.0
+	recalls[q] = recall
+	mrrs[q] = mrr
+
+# print(recalls)
+
+searches = ["dense", "sparse", "hybrid"]
+types = ["BM25", "SEMANTIC", "FUZZY"]
+mean_recall = {s: {t: 0.0 for t in types} for s in searches}
+mean_mrr = {s: {t: 0.0 for t in types} for s in searches}
+
+def get_query_type(query):
+	if query in KEYWORD_SEARCHES:
+		return "BM25"
+	if query in SEMANTIC_SEARCHES:
+		return "SEMANTIC"
+	if query in FUZZY_SEARCHES:
+		return "FUZZY"
+
+for s in searches:
+	for q, recall in recalls.items():
+		qtype = get_query_type(q)
+		mean_recall[s][qtype] += recall[s]
+	for q, mrr in mrrs.items():
+		qtype = get_query_type(q)
+		mean_mrr[s][qtype] += mrr[s]
+for s in searches:
+	for t in types:
+		mean_recall[s][t] = round(mean_recall[s][t] / 10, 2)
+		mean_mrr[s][t] = round(mean_mrr[s][t] / 10, 2)
+
+print(mean_recall)
+print(mean_mrr)

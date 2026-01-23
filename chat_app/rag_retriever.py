@@ -17,7 +17,7 @@ class RAGRetriever:
 		self.store = store
 		self.gr = Guardrails(dense_metric="l2", alpha=0.5)
 
-	def hybrid_query(self, query_text: str, *, n_dense=20, n_sparse=50, top_k=3, rrf_k=60):
+	def hybrid_query(self, query_text: str, *, n_dense=20, n_sparse=50, top_k=3, rrf_k=60, include_ids: Optional[bool] = False):
 		logger.info("Hybrid query: %s", query_text)
 
 		# dense
@@ -64,12 +64,17 @@ class RAGRetriever:
 
 		top_norm = self.gr.normalized_scores(top_bm25, top_dists)
 
-		return {
+		out = {
 			"documents": [[id2doc[i] for i in top]],
 			"metadatas": [[id2meta[i] for i in top]],
 			"scores": [[scores[i] for i in top]],
 			"normalized_scores": [[v for v in top_norm]],
 		}
+
+		if include_ids:
+			out["ids"] = [top]
+
+		return out
 
 	def build_messages_hybrid(self, question: str, top_k: Optional[int] = None):
 		if not top_k:

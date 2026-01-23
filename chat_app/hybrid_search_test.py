@@ -61,6 +61,8 @@ FUZZY_SEARCHES = [
 
 ]
 
+K = 3
+
 from .rag_store import RAGStore
 from .rag_retriever import RAGRetriever
 import json
@@ -77,20 +79,39 @@ sources_with_ids = dict()
 # with open('sources_with_ids.json', 'w') as f:
 # 	json.dump(sources_with_ids, f)
 
-core_chunks = dict()
-for query in KEYWORD_SEARCHES + SEMNATIC_SEARCHES + FUZZY_SEARCHES:
-	dense = store.query(query, n_results=10, include=("documents","metadatas","distances"))
-	d_ids = dense.get("ids", [[]])[0] if "ids" in dense else []
-	d_docs = dense.get("documents", [[]])[0]
-	d_meta = dense.get("metadatas", [[]])[0]
-	d_dists = dense.get("distances", [[]])[0]
-	print(f"############################ THE Q: {query} ############################")
-	for i, (doc, d_id) in enumerate(zip(d_docs, d_ids)):
-		print(f"{i}. Chunk with id '{d_id}' ############################")
-		print(doc, "\n")
-	chosen_core_chunk = int(input("Which one good sir?\n>"))
-	core_chunks[query] = d_ids[chosen_core_chunk]
-	os.system('cls' if os.name == 'nt' else 'clear')
+# core_chunks = dict()
+# for query in KEYWORD_SEARCHES:
+# 	dense = store.sparse_query(query, n_results=10)
+# 	d_ids = dense.get("ids", [[]])[0] if "ids" in dense else []
+# 	d_docs = dense.get("documents", [[]])[0]
+# 	d_meta = dense.get("metadatas", [[]])[0]
+# 	d_dists = dense.get("distances", [[]])[0]
+# 	print(f"############################ THE Q: {query} ############################")
+# 	for i, (doc, d_id) in enumerate(zip(d_docs, d_ids)):
+# 		print(f"{i}. Chunk with id '{d_id}' ############################")
+# 		print(doc, "\n")
+# 	chosen_core_chunk = int(input("Which one good sir?\n>"))
+# 	core_chunks[query] = [d_ids[chosen_core_chunk], chosen_core_chunk]
+# 	os.system('cls' if os.name == 'nt' else 'clear')
 
-with open('core_chunks.json', 'w') as f:
-	json.dump(core_chunks, f)
+# with open('core_chunks.json', 'w') as f:
+# 	json.dump(core_chunks, f)
+
+# recall = 1 or 0
+# mrr = 1/k
+
+results = dict()
+
+for query in KEYWORD_SEARCHES + SEMNATIC_SEARCHES + FUZZY_SEARCHES:
+	dense = store.query(query, n_results=K, include=("documents","metadatas","distances"))
+	d_ids = dense.get("ids", [[]])[0] if "ids" in dense else []
+	sparse = store.sparse_query(query, n_results=K)
+	s_ids = sparse.get("ids", [[]])[0] if "ids" in dense else []
+	hybrid = rag.hybrid_query(query, top_k=K, include_ids=True)
+	h_ids = hybrid.get("ids", [[]])[0] if "ids" in dense else []
+
+	results[query] = {"dense": d_ids, "sparse": s_ids, "hybrid": h_ids}
+
+with open('results.json', 'w') as f:
+	json.dump(results, f)
+

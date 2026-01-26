@@ -139,7 +139,7 @@ the_ids = [
 # with open('results.json', 'w') as f:
 # 	json.dump(results, f)
 
-with open("results.json", "r") as f:
+with open("test_results/results.json", "r") as f:
     results = json.loads(f.read())
 
 recalls = {}	# {q: {s:int,...}} -> 
@@ -167,6 +167,9 @@ types = ["BM25", "SEMANTIC", "FUZZY"]
 mean_recall = {s: {t: 0.0 for t in types} for s in searches}
 mean_mrr = {s: {t: 0.0 for t in types} for s in searches}
 
+mean_recall_just_search = {s: 0.0 for s in searches}
+mean_mrr_just_search = {s: 0.0 for s in searches}
+
 def get_query_type(query):
 	if query in KEYWORD_SEARCHES:
 		return "BM25"
@@ -179,13 +182,29 @@ for s in searches:
 	for q, recall in recalls.items():
 		qtype = get_query_type(q)
 		mean_recall[s][qtype] += recall[s]
+		mean_recall_just_search[s] += recall[s]
 	for q, mrr in mrrs.items():
 		qtype = get_query_type(q)
 		mean_mrr[s][qtype] += mrr[s]
+		mean_mrr_just_search[s] += mrr[s]
 for s in searches:
+	mean_recall_just_search[s] = round(mean_recall_just_search[s] / 30)
+	mean_mrr_just_search[s] = round(mean_mrr_just_search[s] / 30)
 	for t in types:
 		mean_recall[s][t] = round(mean_recall[s][t] / 10, 2)
 		mean_mrr[s][t] = round(mean_mrr[s][t] / 10, 2)
 
+
+with open('test_results/mean_recall_per_search.json', 'w') as f:
+	json.dump(mean_recall_just_search, f)
+
+with open('test_results/mean_mrr_per_search.json', 'w') as f:
+	json.dump(mean_mrr_just_search, f)
+
+with open('test_results/mean_recall_per_search_qtype.json', 'w') as f:
+	json.dump(mean_recall, f)
+
+with open('test_results/mean_mrr_per_search_qtype.json', 'w') as f:
+	json.dump(mean_mrr, f)
 print(mean_recall)
 print(mean_mrr)

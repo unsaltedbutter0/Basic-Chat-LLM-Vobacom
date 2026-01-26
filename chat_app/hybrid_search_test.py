@@ -187,9 +187,10 @@ for s in searches:
 		qtype = get_query_type(q)
 		mean_mrr[s][qtype] += mrr[s]
 		mean_mrr_just_search[s] += mrr[s]
+
 for s in searches:
-	mean_recall_just_search[s] = round(mean_recall_just_search[s] / 30)
-	mean_mrr_just_search[s] = round(mean_mrr_just_search[s] / 30)
+	mean_recall_just_search[s] = round(mean_recall_just_search[s] / 30, 2)
+	mean_mrr_just_search[s] = round(mean_mrr_just_search[s] / 30, 2)
 	for t in types:
 		mean_recall[s][t] = round(mean_recall[s][t] / 10, 2)
 		mean_mrr[s][t] = round(mean_mrr[s][t] / 10, 2)

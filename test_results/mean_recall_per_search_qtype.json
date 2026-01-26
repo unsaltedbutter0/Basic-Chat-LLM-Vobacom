@@ -1,0 +1,1 @@
+{"dense": {"BM25": 1.0, "SEMANTIC": 0.6, "FUZZY": 0.6}, "sparse": {"BM25": 0.9, "SEMANTIC": 0.6, "FUZZY": 0.6}, "hybrid": {"BM25": 1.0, "SEMANTIC": 0.8, "FUZZY": 0.7}}
